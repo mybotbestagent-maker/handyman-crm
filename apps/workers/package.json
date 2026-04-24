@@ -1,0 +1,24 @@
+{
+  "name": "@handyman-crm/workers",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@handyman-crm/ai": "workspace:*",
+    "@handyman-crm/db": "workspace:*",
+    "@handyman-crm/storage": "workspace:*",
+    "@handyman-crm/telephony": "workspace:*",
+    "bullmq": "^5.7.5",
+    "ioredis": "^5.3.2",
+    "pino": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "tsx": "^4.9.3",
+    "typescript": "^5.4.5"
+  }
+}

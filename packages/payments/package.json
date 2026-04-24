@@ -1,0 +1,14 @@
+{
+  "name": "@handyman-crm/payments",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./index.ts",
+  "exports": { ".": "./index.ts" },
+  "dependencies": {
+    "stripe": "^15.7.0",
+    "zod": "^3.23.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

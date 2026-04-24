@@ -1,0 +1,32 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: crm-postgres
+    environment:
+      POSTGRES_DB: handyman_crm
+      POSTGRES_USER: crm_user
+      POSTGRES_PASSWORD: crm_password_local
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U crm_user -d handyman_crm']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: crm-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 20 1 --loglevel warning
+
+volumes:
+  postgres_data:
+  redis_data:

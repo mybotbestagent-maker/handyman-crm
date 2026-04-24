@@ -1,0 +1,364 @@
+// packages/db/schema.sqlite.prisma
+// SQLite variant for local development (no Supabase required)
+// Run: DATABASE_URL=file:./dev.db npx prisma generate --schema=schema.sqlite.prisma
+//      DATABASE_URL=file:./dev.db npx prisma migrate dev --schema=schema.sqlite.prisma --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id         String   @id @default(uuid())
+  name       String
+  slug       String   @unique
+  plan       String   @default("starter")
+  brandColor String?
+  logoUrl    String?
+  phone      String?
+  email      String?
+  address    String?
+  timezone   String   @default("America/New_York")
+  settings   String   @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  users       User[]
+  customers   Customer[]
+  properties  Property[]
+  jobs        Job[]
+  leads       Lead[]
+  technicians Technician[]
+  invoices    Invoice[]
+  payments    Payment[]
+  calls       Call[]
+  attachments Attachment[]
+  auditLogs   AuditLog[]
+  estimates   Estimate[]
+  jobItems    JobItem[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String    @id @default(uuid())
+  orgId          String
+  supabaseUserId String?   @unique
+  email          String
+  phone          String?
+  role           String    @default("tech")
+  fullName       String
+  avatarUrl      String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  lastLogin      DateTime?
+
+  org        Organization @relation(fields: [orgId], references: [id])
+  technician Technician?
+  dispatched Job[]        @relation("dispatcher")
+
+  @@unique([orgId, email])
+  @@index([orgId])
+  @@map("users")
+}
+
+model Customer {
+  id             String   @id @default(uuid())
+  orgId          String
+  type           String   @default("residential")
+  companyName    String?
+  billingName    String
+  email          String?
+  phone          String
+  alternatePhone String?
+  billingAddress String
+  tags           String   @default("[]")
+  source         String?
+  lifetimeValue  Float    @default(0)
+  firstServiceAt DateTime?
+  lastServiceAt  DateTime?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  org        Organization @relation(fields: [orgId], references: [id])
+  properties Property[]
+  jobs       Job[]
+  invoices   Invoice[]
+  calls      Call[]
+  leads      Lead[]
+  estimates  Estimate[]
+
+  @@index([orgId, phone])
+  @@index([orgId, email])
+  @@index([orgId, createdAt])
+  @@map("customers")
+}
+
+model Property {
+  id           String   @id @default(uuid())
+  orgId        String
+  customerId   String
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  state        String
+  zip          String
+  geoLat       Float?
+  geoLng       Float?
+  accessNotes  String?
+  gateCode     String?
+  petInfo      String?
+  isPrimary    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  org      Organization @relation(fields: [orgId], references: [id])
+  customer Customer     @relation(fields: [customerId], references: [id])
+  jobs     Job[]
+
+  @@index([orgId, customerId])
+  @@map("properties")
+}
+
+model Technician {
+  id             String   @id @default(uuid())
+  orgId          String
+  userId         String   @unique
+  hireDate       DateTime
+  hourlyCost     Float
+  skills         String
+  certifications String   @default("[]")
+  territory      String?
+  rating         Float?
+  totalJobs      Int      @default(0)
+  isActive       Boolean  @default(true)
+  employmentType String
+
+  user User         @relation(fields: [userId], references: [id])
+  org  Organization @relation(fields: [orgId], references: [id])
+  jobs Job[]
+
+  @@index([orgId, isActive])
+  @@map("technicians")
+}
+
+model Lead {
+  id                   String   @id @default(uuid())
+  orgId                String
+  source               String
+  sourceMeta           String   @default("{}")
+  customerId           String?
+  serviceType          String
+  description          String
+  zip                  String
+  status               String   @default("new")
+  assignedDispatcherId String?
+  score                Int      @default(0)
+  responseTimeSeconds  Int?
+  convertedAt          DateTime?
+  receivedAt           DateTime @default(now())
+
+  org      Organization @relation(fields: [orgId], references: [id])
+  customer Customer?    @relation(fields: [customerId], references: [id])
+  jobs     Job[]
+
+  @@index([orgId, status, receivedAt])
+  @@map("leads")
+}
+
+model Job {
+  id                   String   @id @default(uuid())
+  orgId                String
+  jobNumber            String   @unique
+  customerId           String
+  propertyId           String
+  leadId               String?
+  jobType              String
+  category             String
+  description          String
+  status               String   @default("new")
+  priority             String   @default("normal")
+  assignedTechnicianId String?
+  dispatcherId         String?
+  scheduledStart       DateTime?
+  scheduledEnd         DateTime?
+  actualStart          DateTime?
+  actualEnd            DateTime?
+  estimatedRevenue     Float?
+  actualRevenue        Float?
+  customerRating       Int?
+  customerReview       String?
+  internalNotes        String?
+  requiresEstimate     Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  org        Organization @relation(fields: [orgId], references: [id])
+  customer   Customer     @relation(fields: [customerId], references: [id])
+  property   Property     @relation(fields: [propertyId], references: [id])
+  lead       Lead?        @relation(fields: [leadId], references: [id])
+  technician Technician?  @relation(fields: [assignedTechnicianId], references: [id])
+  dispatcher User?        @relation("dispatcher", fields: [dispatcherId], references: [id])
+  items      JobItem[]
+  invoices   Invoice[]
+  calls      Call[]
+  attachments Attachment[]
+  estimates  Estimate[]
+
+  @@index([orgId, status])
+  @@index([orgId, scheduledStart])
+  @@index([orgId, customerId])
+  @@map("jobs")
+}
+
+model JobItem {
+  id        String   @id @default(uuid())
+  orgId     String
+  jobId     String
+  itemType  String
+  name      String
+  qty       Float
+  unitPrice Float
+  total     Float
+  sortOrder Int      @default(0)
+
+  org Organization @relation(fields: [orgId], references: [id])
+  job Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@map("job_items")
+}
+
+model Estimate {
+  id             String   @id @default(uuid())
+  orgId          String
+  jobId          String
+  customerId     String
+  estimateNumber String   @unique
+  status         String   @default("draft")
+  subtotal       Float
+  tax            Float
+  total          Float
+  validUntil     DateTime
+  approvalToken  String?  @unique
+  approvedAt     DateTime?
+  rejectedAt     DateTime?
+  sentAt         DateTime?
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  org      Organization @relation(fields: [orgId], references: [id])
+  job      Job          @relation(fields: [jobId], references: [id])
+  customer Customer     @relation(fields: [customerId], references: [id])
+
+  @@map("estimates")
+}
+
+model Invoice {
+  id              String   @id @default(uuid())
+  orgId           String
+  jobId           String
+  customerId      String
+  invoiceNumber   String   @unique
+  status          String   @default("draft")
+  subtotal        Float
+  tax             Float
+  total           Float
+  amountPaid      Float    @default(0)
+  dueDate         DateTime
+  stripeInvoiceId String?  @unique
+  sentAt          DateTime?
+  paidAt          DateTime?
+  createdAt       DateTime @default(now())
+
+  org      Organization @relation(fields: [orgId], references: [id])
+  job      Job          @relation(fields: [jobId], references: [id])
+  customer Customer     @relation(fields: [customerId], references: [id])
+  payments Payment[]
+
+  @@map("invoices")
+}
+
+model Payment {
+  id             String   @id @default(uuid())
+  orgId          String
+  invoiceId      String
+  amount         Float
+  method         String
+  processor      String
+  processorTxnId String?  @unique
+  status         String
+  receivedAt     DateTime @default(now())
+
+  org     Organization @relation(fields: [orgId], references: [id])
+  invoice Invoice      @relation(fields: [invoiceId], references: [id])
+
+  @@map("payments")
+}
+
+model Call {
+  id              String   @id @default(uuid())
+  orgId           String
+  customerId      String?
+  leadId          String?
+  jobId           String?
+  direction       String
+  fromNumber      String
+  toNumber        String
+  twilioCallSid   String?  @unique
+  vapiCallId      String?  @unique
+  durationSeconds Int?
+  recordingUrl    String?
+  transcription   String?
+  sentimentScore  Float?
+  extractedFacts  String?
+  aiSummary       String?
+  startedAt       DateTime
+  endedAt         DateTime?
+
+  org      Organization @relation(fields: [orgId], references: [id])
+  customer Customer?    @relation(fields: [customerId], references: [id])
+  job      Job?         @relation(fields: [jobId], references: [id])
+
+  @@map("calls")
+}
+
+model Attachment {
+  id         String   @id @default(uuid())
+  orgId      String
+  entityType String
+  entityId   String
+  fileName   String
+  fileType   String
+  fileSize   Int?
+  url        String
+  uploadedBy String?
+  uploadedAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id])
+  job Job?         @relation(fields: [entityId], references: [id])
+
+  @@map("attachments")
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  orgId      String
+  userId     String?
+  action     String
+  entityType String
+  entityId   String
+  before     String?
+  after      String?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@map("audit_log")
+}
