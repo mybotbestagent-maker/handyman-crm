@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "cd ../.. && pnpm -C packages/db prisma generate && pnpm --filter @handyman-crm/web build",
+  "devCommand": "pnpm dev",
+  "installCommand": "cd ../.. && pnpm install --frozen-lockfile=false",
+  "framework": "nextjs",
+  "outputDirectory": ".next"
+}
