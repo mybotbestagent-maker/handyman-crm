@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Topbar } from '@/components/layout/topbar';
 import { api } from '@/lib/trpc/client';
 import {
@@ -692,11 +693,34 @@ function CustomerForm({
 // ── Main Customers Page ────────────────────────────────────────────────────────
 
 export default function CustomersPage() {
+  return (
+    <Suspense fallback={<><Topbar title="Customers" /><div className="p-12 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div></>}>
+      <CustomersPageInner />
+    </Suspense>
+  );
+}
+
+function CustomersPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlId = searchParams.get('id');
+
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'residential' | 'commercial' | undefined>(undefined);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(urlId);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | undefined>(undefined);
+
+  // Sync ?id= query param with selectedId (deep-link support)
+  useEffect(() => {
+    setSelectedId(urlId);
+  }, [urlId]);
+
+  function selectCustomer(id: string | null) {
+    if (id) router.push(`/customers?id=${id}`);
+    else router.push('/customers');
+    setSelectedId(id);
+  }
 
   const { data, isLoading } = api.customer.list.useQuery({
     search: search.trim() || undefined,
@@ -718,7 +742,7 @@ export default function CustomersPage() {
 
   function handleSaved(id: string) {
     setShowForm(false);
-    setSelectedId(id);
+    selectCustomer(id);
   }
 
   if (selectedId) {
@@ -727,7 +751,7 @@ export default function CustomersPage() {
         <Topbar title="Customers" />
         <CustomerDetail
           customerId={selectedId}
-          onBack={() => setSelectedId(null)}
+          onBack={() => selectCustomer(null)}
           onEdit={openEdit}
         />
         {showForm && (
@@ -839,7 +863,7 @@ export default function CustomersPage() {
                       <tr
                         key={c.id}
                         className="hover:bg-muted/30 transition-colors cursor-pointer"
-                        onClick={() => setSelectedId(c.id)}
+                        onClick={() => selectCustomer(c.id)}
                       >
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
