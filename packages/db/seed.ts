@@ -397,12 +397,15 @@ async function main() {
     { id: 'pay-005', invoiceId: 'inv-005', amount: 50, method: 'check', stripeChargeId: null, paidAt: '2026-04-23T11:00:00' },
   ];
   for (const p of payments) {
+    const processor = p.method === 'card' || p.method === 'ach' ? 'stripe' : 'manual';
     await db.payment.upsert({
       where: { id: p.id },
       create: {
         id: p.id, orgId: ORG_ID, invoiceId: p.invoiceId,
         amount: p.amount, method: p.method,
-        stripePaymentIntentId: p.stripeChargeId,
+        processor,
+        processorTxnId: p.stripeChargeId,
+        status: 'succeeded',
         receivedAt: new Date(p.paidAt),
       },
       update: {},
