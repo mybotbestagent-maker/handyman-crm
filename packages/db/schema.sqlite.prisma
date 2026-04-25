@@ -27,19 +27,21 @@ model Organization {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  users       User[]
-  customers   Customer[]
-  properties  Property[]
-  jobs        Job[]
-  leads       Lead[]
-  technicians Technician[]
-  invoices    Invoice[]
-  payments    Payment[]
-  calls       Call[]
-  attachments Attachment[]
-  auditLogs   AuditLog[]
-  estimates   Estimate[]
-  jobItems    JobItem[]
+  users            User[]
+  customers        Customer[]
+  properties       Property[]
+  jobs             Job[]
+  leads            Lead[]
+  technicians      Technician[]
+  invoices         Invoice[]
+  payments         Payment[]
+  calls            Call[]
+  attachments      Attachment[]
+  auditLogs        AuditLog[]
+  estimates        Estimate[]
+  jobItems         JobItem[]
+  opportunities    Opportunity[]
+  opportunityItems OpportunityItem[]
 
   @@map("organizations")
 }
@@ -57,9 +59,10 @@ model User {
   createdAt      DateTime  @default(now())
   lastLogin      DateTime?
 
-  org        Organization @relation(fields: [orgId], references: [id])
-  technician Technician?
-  dispatched Job[]        @relation("dispatcher")
+  org                     Organization  @relation(fields: [orgId], references: [id])
+  technician              Technician?
+  dispatched              Job[]         @relation("dispatcher")
+  dispatchedOpportunities Opportunity[] @relation("opportunityDispatcher")
 
   @@unique([orgId, email])
   @@index([orgId])
@@ -85,13 +88,14 @@ model Customer {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  org        Organization @relation(fields: [orgId], references: [id])
-  properties Property[]
-  jobs       Job[]
-  invoices   Invoice[]
-  calls      Call[]
-  leads      Lead[]
-  estimates  Estimate[]
+  org           Organization  @relation(fields: [orgId], references: [id])
+  properties    Property[]
+  jobs          Job[]
+  invoices      Invoice[]
+  calls         Call[]
+  leads         Lead[]
+  estimates     Estimate[]
+  opportunities Opportunity[]
 
   @@index([orgId, phone])
   @@index([orgId, email])
@@ -116,9 +120,10 @@ model Property {
   isPrimary    Boolean  @default(false)
   createdAt    DateTime @default(now())
 
-  org      Organization @relation(fields: [orgId], references: [id])
-  customer Customer     @relation(fields: [customerId], references: [id])
-  jobs     Job[]
+  org           Organization  @relation(fields: [orgId], references: [id])
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  jobs          Job[]
+  opportunities Opportunity[]
 
   @@index([orgId, customerId])
   @@map("properties")
@@ -138,9 +143,10 @@ model Technician {
   isActive       Boolean  @default(true)
   employmentType String
 
-  user User         @relation(fields: [userId], references: [id])
-  org  Organization @relation(fields: [orgId], references: [id])
-  jobs Job[]
+  user          User          @relation(fields: [userId], references: [id])
+  org           Organization  @relation(fields: [orgId], references: [id])
+  jobs          Job[]
+  opportunities Opportunity[]
 
   @@index([orgId, isActive])
   @@map("technicians")
@@ -221,20 +227,22 @@ model Job {
 }
 
 model JobItem {
-  id        String   @id @default(uuid())
-  orgId     String
-  jobId     String
-  itemType  String
-  name      String
-  qty       Float
-  unitPrice Float
-  total     Float
-  sortOrder Int      @default(0)
+  id            String   @id @default(uuid())
+  orgId         String
+  jobId         String
+  opportunityId String?
+  itemType      String
+  name          String
+  qty           Float
+  unitPrice     Float
+  total         Float
+  sortOrder     Int      @default(0)
 
   org Organization @relation(fields: [orgId], references: [id])
   job Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([jobId])
+  @@index([opportunityId])
   @@map("job_items")
 }
 
@@ -242,6 +250,7 @@ model Estimate {
   id             String   @id @default(uuid())
   orgId          String
   jobId          String
+  opportunityId  String?
   customerId     String
   estimateNumber String   @unique
   status         String   @default("draft")
@@ -256,10 +265,12 @@ model Estimate {
   notes          String?
   createdAt      DateTime @default(now())
 
-  org      Organization @relation(fields: [orgId], references: [id])
-  job      Job          @relation(fields: [jobId], references: [id])
-  customer Customer     @relation(fields: [customerId], references: [id])
+  org         Organization @relation(fields: [orgId], references: [id])
+  job         Job          @relation(fields: [jobId], references: [id])
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
+  customer    Customer     @relation(fields: [customerId], references: [id])
 
+  @@index([opportunityId])
   @@map("estimates")
 }
 
@@ -267,6 +278,7 @@ model Invoice {
   id              String   @id @default(uuid())
   orgId           String
   jobId           String
+  opportunityId   String?
   customerId      String
   invoiceNumber   String   @unique
   status          String   @default("draft")
@@ -280,11 +292,13 @@ model Invoice {
   paidAt          DateTime?
   createdAt       DateTime @default(now())
 
-  org      Organization @relation(fields: [orgId], references: [id])
-  job      Job          @relation(fields: [jobId], references: [id])
-  customer Customer     @relation(fields: [customerId], references: [id])
-  payments Payment[]
+  org         Organization @relation(fields: [orgId], references: [id])
+  job         Job          @relation(fields: [jobId], references: [id])
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  payments    Payment[]
 
+  @@index([opportunityId])
   @@map("invoices")
 }
 
@@ -311,6 +325,7 @@ model Call {
   customerId      String?
   leadId          String?
   jobId           String?
+  opportunityId   String?
   direction       String
   fromNumber      String
   toNumber        String
@@ -325,10 +340,12 @@ model Call {
   startedAt       DateTime
   endedAt         DateTime?
 
-  org      Organization @relation(fields: [orgId], references: [id])
-  customer Customer?    @relation(fields: [customerId], references: [id])
-  job      Job?         @relation(fields: [jobId], references: [id])
+  org         Organization @relation(fields: [orgId], references: [id])
+  customer    Customer?    @relation(fields: [customerId], references: [id])
+  job         Job?         @relation(fields: [jobId], references: [id])
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
 
+  @@index([opportunityId])
   @@map("calls")
 }
 
@@ -366,4 +383,105 @@ model AuditLog {
   org Organization @relation(fields: [orgId], references: [id])
 
   @@map("audit_log")
+}
+
+// ── T-CORE-OPPORTUNITY (D-03) ────────────────────────────────────────────────
+// Single record across full Lead → Job → Invoice → Paid lifecycle.
+// SQLite variant: String for stage (no enums), Float for money (no Decimal).
+model Opportunity {
+  id                      String    @id @default(uuid())
+  orgId                   String
+
+  stage                   String    @default("new_lead")
+  stageHistory            String    @default("[]")
+  lostReason              String?
+  daysInCurrentStage      Int?
+
+  sourceId                String
+  sourceLeadId            String?
+  serviceAreaId           String?
+
+  customerId              String?
+  customerName            String
+  customerPhone           String?
+  customerEmail           String?
+  serviceCategory         String
+  description             String?
+  addressLine             String?
+  city                    String?
+  state                   String?
+  zip                     String?
+
+  conversationId          String?   @unique
+
+  jobNumber               String?   @unique
+  propertyId              String?
+  scheduledStart          DateTime?
+  scheduledEnd            DateTime?
+  durationEstimateMinutes Int?
+  technicianId            String?
+  dispatcherId            String?
+  actualStart             DateTime?
+  actualEnd               DateTime?
+
+  estimateAmount          Float?
+  finalAmount             Float?
+  laborCost               Float?
+  partsCost               Float?
+
+  customerRating          Int?
+  customerReview          String?
+  internalNotes           String?
+  priority                String    @default("normal")
+
+  qualifiedAt             DateTime?
+  jobCreatedAt            DateTime?
+  scheduledAt             DateTime?
+  doneAt                  DateTime?
+  paidAt                  DateTime?
+  lostAt                  DateTime?
+
+  enteredCurrentStageAt   DateTime  @default(now())
+  lastActivityAt          DateTime  @default(now()) @updatedAt
+
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  legacyLeadId            String?   @unique
+  legacyJobId             String?   @unique
+
+  org         Organization @relation(fields: [orgId], references: [id])
+  customer    Customer?    @relation(fields: [customerId], references: [id])
+  property    Property?    @relation(fields: [propertyId], references: [id])
+  technician  Technician?  @relation(fields: [technicianId], references: [id])
+  dispatcher  User?        @relation("opportunityDispatcher", fields: [dispatcherId], references: [id])
+  items       OpportunityItem[]
+  invoices    Invoice[]
+  estimates   Estimate[]
+  calls       Call[]
+
+  @@index([orgId, stage, lastActivityAt])
+  @@index([orgId, sourceId, createdAt])
+  @@index([orgId, technicianId, scheduledStart])
+  @@index([orgId, customerId])
+  @@map("opportunities")
+}
+
+model OpportunityItem {
+  id            String  @id @default(uuid())
+  orgId         String
+  opportunityId String
+  itemType      String
+  name          String
+  qty           Float
+  unitPrice     Float
+  total         Float
+  sortOrder     Int     @default(0)
+
+  org         Organization @relation(fields: [orgId], references: [id])
+  opportunity Opportunity  @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId])
+  @@index([orgId])
+  @@map("opportunity_items")
 }

@@ -40,19 +40,21 @@ model Organization {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  users       User[]
-  customers   Customer[]
-  properties  Property[]
-  jobs        Job[]
-  leads       Lead[]
-  technicians Technician[]
-  invoices    Invoice[]
-  payments    Payment[]
-  calls       Call[]
-  attachments Attachment[]
-  auditLogs   AuditLog[]
-  estimates   Estimate[]
-  jobItems    JobItem[]
+  users         User[]
+  customers     Customer[]
+  properties    Property[]
+  jobs          Job[]
+  leads         Lead[]
+  technicians   Technician[]
+  invoices      Invoice[]
+  payments      Payment[]
+  calls         Call[]
+  attachments   Attachment[]
+  auditLogs     AuditLog[]
+  estimates     Estimate[]
+  jobItems      JobItem[]
+  opportunities Opportunity[]
+  opportunityItems OpportunityItem[]
 
   @@map("organizations")
 }
@@ -70,9 +72,10 @@ model User {
   createdAt      DateTime  @default(now())
   lastLogin      DateTime?
 
-  org        Organization @relation(fields: [orgId], references: [id])
-  technician Technician?
-  dispatched Job[]        @relation("dispatcher")
+  org                    Organization  @relation(fields: [orgId], references: [id])
+  technician             Technician?
+  dispatched             Job[]         @relation("dispatcher")
+  dispatchedOpportunities Opportunity[] @relation("opportunityDispatcher")
 
   @@unique([orgId, email])
   @@index([orgId])
@@ -99,13 +102,14 @@ model Customer {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  org        Organization @relation(fields: [orgId], references: [id])
-  properties Property[]
-  jobs       Job[]
-  invoices   Invoice[]
-  calls      Call[]
-  leads      Lead[]
-  estimates  Estimate[]
+  org           Organization  @relation(fields: [orgId], references: [id])
+  properties    Property[]
+  jobs          Job[]
+  invoices      Invoice[]
+  calls         Call[]
+  leads         Lead[]
+  estimates     Estimate[]
+  opportunities Opportunity[]
 
   @@index([orgId, phone])
   @@index([orgId, email])
@@ -130,9 +134,10 @@ model Property {
   isPrimary    Boolean  @default(false)
   createdAt    DateTime @default(now())
 
-  org      Organization @relation(fields: [orgId], references: [id])
-  customer Customer     @relation(fields: [customerId], references: [id])
-  jobs     Job[]
+  org           Organization  @relation(fields: [orgId], references: [id])
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  jobs          Job[]
+  opportunities Opportunity[]
 
   @@index([orgId, customerId])
   @@index([orgId, zip])
@@ -153,9 +158,10 @@ model Technician {
   isActive       Boolean  @default(true)
   employmentType String   // w2 | contractor_1099
 
-  user User         @relation(fields: [userId], references: [id])
-  org  Organization @relation(fields: [orgId], references: [id])
-  jobs Job[]
+  user          User          @relation(fields: [userId], references: [id])
+  org           Organization  @relation(fields: [orgId], references: [id])
+  jobs          Job[]
+  opportunities Opportunity[]
 
   @@index([orgId, isActive])
   @@index([orgId, rating])
@@ -241,20 +247,22 @@ model Job {
 }
 
 model JobItem {
-  id        String   @id @default(uuid())
-  orgId     String
-  jobId     String
-  itemType  String   // labor|part|service|discount
-  name      String
-  qty       Float
-  unitPrice Float
-  total     Float
-  sortOrder Int      @default(0)
+  id            String   @id @default(uuid())
+  orgId         String
+  jobId         String
+  opportunityId String?  // backfill target (T-CORE-OPPORTUNITY); becomes NOT NULL after cutover
+  itemType      String   // labor|part|service|discount
+  name          String
+  qty           Float
+  unitPrice     Float
+  total         Float
+  sortOrder     Int      @default(0)
 
   org Organization @relation(fields: [orgId], references: [id])
   job Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([jobId])
+  @@index([opportunityId])
   @@index([orgId])
   @@map("job_items")
 }
@@ -263,6 +271,7 @@ model Estimate {
   id             String   @id @default(uuid())
   orgId          String
   jobId          String
+  opportunityId  String?  // backfill target (T-CORE-OPPORTUNITY)
   customerId     String
   estimateNumber String   @unique
   status         String   @default("draft") // draft|sent|approved|rejected|expired
@@ -277,12 +286,14 @@ model Estimate {
   notes          String?  @db.Text
   createdAt      DateTime @default(now())
 
-  org      Organization @relation(fields: [orgId], references: [id])
-  job      Job          @relation(fields: [jobId], references: [id])
-  customer Customer     @relation(fields: [customerId], references: [id])
+  org         Organization @relation(fields: [orgId], references: [id])
+  job         Job          @relation(fields: [jobId], references: [id])
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
+  customer    Customer     @relation(fields: [customerId], references: [id])
 
   @@index([orgId, status])
   @@index([orgId, customerId])
+  @@index([opportunityId])
   @@map("estimates")
 }
 
@@ -290,6 +301,7 @@ model Invoice {
   id              String   @id @default(uuid())
   orgId           String
   jobId           String
+  opportunityId   String?  // backfill target (T-CORE-OPPORTUNITY)
   customerId      String
   invoiceNumber   String   @unique
   status          String   @default("draft") // draft|sent|partial|paid|overdue|voided
@@ -303,13 +315,15 @@ model Invoice {
   paidAt          DateTime?
   createdAt       DateTime @default(now())
 
-  org      Organization @relation(fields: [orgId], references: [id])
-  job      Job          @relation(fields: [jobId], references: [id])
-  customer Customer     @relation(fields: [customerId], references: [id])
-  payments Payment[]
+  org         Organization @relation(fields: [orgId], references: [id])
+  job         Job          @relation(fields: [jobId], references: [id])
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  payments    Payment[]
 
   @@index([orgId, status, dueDate])
   @@index([orgId, customerId])
+  @@index([opportunityId])
   @@map("invoices")
 }
 
@@ -338,6 +352,7 @@ model Call {
   customerId      String?
   leadId          String?
   jobId           String?
+  opportunityId   String?  // backfill target (T-CORE-OPPORTUNITY)
   direction       String   // inbound | outbound
   fromNumber      String
   toNumber        String
@@ -352,13 +367,15 @@ model Call {
   startedAt       DateTime
   endedAt         DateTime?
 
-  org      Organization @relation(fields: [orgId], references: [id])
-  customer Customer?    @relation(fields: [customerId], references: [id])
-  job      Job?         @relation(fields: [jobId], references: [id])
+  org         Organization @relation(fields: [orgId], references: [id])
+  customer    Customer?    @relation(fields: [customerId], references: [id])
+  job         Job?         @relation(fields: [jobId], references: [id])
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
 
   @@index([orgId, startedAt])
   @@index([orgId, customerId])
   @@index([orgId, direction])
+  @@index([opportunityId])
   @@map("calls")
 }
 
@@ -379,6 +396,128 @@ model Attachment {
 
   @@index([orgId, entityType, entityId])
   @@map("attachments")
+}
+
+// ── T-CORE-OPPORTUNITY (D-03) ────────────────────────────────────────────────
+// Single record across full Lead → Job → Invoice → Paid lifecycle.
+// Replaces Lead+Job split. See projects/crm/T-CORE-OPPORTUNITY-PLAN.md.
+//
+// Migration strategy: shadow table — Lead+Job tables stay during cutover.
+// Old/new readers gate on env OPPORTUNITY_ENABLED. After verify in prod
+// (~24-48h), drop legacy tables in separate migration.
+model Opportunity {
+  id                      String    @id @default(uuid())
+  orgId                   String
+
+  // Stage management (string instead of Postgres enum for SQLite parity)
+  stage                   String    @default("new_lead")
+                                    // OPP_STAGES: new_lead | ai_responding | qualified |
+                                    // estimate_sent | estimate_approved | job_created |
+                                    // scheduled | on_the_way | in_progress | done |
+                                    // invoiced | paid | lost
+  stageHistory            String    @default("[]") @db.Text
+                                    // JSON: [{stage, enteredAt, exitedAt, durationMs, by}]
+  lostReason              String?   // when stage=lost: lost | declined | no_response | canceled | duplicate
+  daysInCurrentStage      Int?      // computed by aging cron
+
+  // Source & attribution
+  sourceId                String    // 'thumbtack' | 'comeback' | 'website' | 'google_lsa' | ...
+  sourceLeadId            String?   // external lead id (e.g. Thumbtack thread id)
+  serviceAreaId           String?   // nullable until ServiceArea entity exists
+
+  // Customer info — captured at intake (before Customer record may exist)
+  customerId              String?   // null until QUALIFIED+
+  customerName            String
+  customerPhone           String?
+  customerEmail           String?
+  serviceCategory         String
+  description             String?   @db.Text
+  addressLine             String?
+  city                    String?
+  state                   String?
+  zip                     String?
+
+  // AI Conversation link — populated by T18 when Conversation table lands
+  conversationId          String?   @unique
+
+  // Job-stage fields (filled at JOB_CREATED+)
+  jobNumber               String?   @unique
+  propertyId              String?
+  scheduledStart          DateTime?
+  scheduledEnd            DateTime?
+  durationEstimateMinutes Int?
+  technicianId            String?
+  dispatcherId            String?
+  actualStart             DateTime?
+  actualEnd               DateTime?
+
+  // Financial — Float for SQLite compat (Postgres Decimal is correct long-term but blocks parity)
+  estimateAmount          Float?
+  finalAmount             Float?
+  laborCost               Float?
+  partsCost               Float?
+
+  // Quality
+  customerRating          Int?
+  customerReview          String?   @db.Text
+  internalNotes           String?   @db.Text
+  priority                String    @default("normal")
+
+  // Stage-transition timestamps (NULL until reached)
+  qualifiedAt             DateTime?
+  jobCreatedAt            DateTime?
+  scheduledAt             DateTime?
+  doneAt                  DateTime?
+  paidAt                  DateTime?
+  lostAt                  DateTime?
+
+  // Aging tracking
+  enteredCurrentStageAt   DateTime  @default(now())
+  lastActivityAt          DateTime  @default(now()) @updatedAt
+
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  // Legacy IDs for traceability (SQL JOIN-able to old Lead/Job records)
+  legacyLeadId            String?   @unique
+  legacyJobId             String?   @unique
+
+  // Relations
+  org         Organization @relation(fields: [orgId], references: [id])
+  customer    Customer?    @relation(fields: [customerId], references: [id])
+  property    Property?    @relation(fields: [propertyId], references: [id])
+  technician  Technician?  @relation(fields: [technicianId], references: [id])
+  dispatcher  User?        @relation("opportunityDispatcher", fields: [dispatcherId], references: [id])
+  items       OpportunityItem[]
+  invoices    Invoice[]
+  estimates   Estimate[]
+  attachments Attachment[]
+  calls       Call[]
+
+  @@index([orgId, stage, lastActivityAt])
+  @@index([orgId, sourceId, createdAt])
+  @@index([orgId, technicianId, scheduledStart])
+  @@index([orgId, customerId])
+  @@map("opportunities")
+}
+
+model OpportunityItem {
+  id            String  @id @default(uuid())
+  orgId         String
+  opportunityId String
+  itemType      String  // labor | part | service | discount
+  name          String
+  qty           Float
+  unitPrice     Float
+  total         Float
+  sortOrder     Int     @default(0)
+
+  org         Organization @relation(fields: [orgId], references: [id])
+  opportunity Opportunity  @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId])
+  @@index([orgId])
+  @@map("opportunity_items")
 }
 
 model AuditLog {
