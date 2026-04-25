@@ -96,11 +96,20 @@ export const jobRouter = router({
       };
     }),
 
-  // Today's schedule — sorted by scheduledStart, all techs visible
+  // Day schedule — sorted by scheduledStart, all techs visible
+  // Default = today; pass dayOffset (0 today, 1 tomorrow, -1 yesterday) or explicit date
   todaySchedule: protectedProcedure
-    .input(z.object({ date: z.date().optional() }).default({}))
+    .input(
+      z
+        .object({
+          date: z.date().optional(),
+          dayOffset: z.number().int().min(-7).max(30).optional(),
+        })
+        .default({}),
+    )
     .query(async ({ ctx, input }) => {
       const day = input.date ?? new Date();
+      if (input.dayOffset != null) day.setDate(day.getDate() + input.dayOffset);
       const start = new Date(day); start.setHours(0, 0, 0, 0);
       const end = new Date(day); end.setHours(23, 59, 59, 999);
 
