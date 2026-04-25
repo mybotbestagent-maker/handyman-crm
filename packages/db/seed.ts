@@ -291,12 +291,164 @@ async function main() {
   });
   console.log('  invoices: OK');
 
+  // ── Extra dispatcher (now we have David + Sarah) ──────────────────────────
+  await db.user.upsert({
+    where: { id: 'user-sarah-dispatcher' },
+    create: {
+      id: 'user-sarah-dispatcher', orgId: ORG_ID,
+      email: 'sarah@handymangoldhands.com', fullName: 'Sarah Lopez (Dispatcher)',
+      role: 'dispatcher', phone: '+13055550003',
+    },
+    update: {},
+  });
+  console.log('  dispatcher #2 (Sarah): OK');
+
+  // ── May 2026 — 15 scheduled jobs across 8 cities and 5 techs ──────────────
+  const techIds = ['tech-miguel', 'tech-carlos', 'tech-diego', 'tech-alex', 'tech-jose'];
+  const customerCity: Record<string, string> = {
+    'cust-001': 'Miami', 'cust-002': 'Washington', 'cust-003': 'Chicago',
+    'cust-004': 'Charlotte', 'cust-005': 'Miami', 'cust-006': 'Philadelphia',
+    'cust-007': 'Atlanta', 'cust-008': 'Houston', 'cust-009': 'Tampa',
+    'cust-010': 'Miami',
+  };
+  const dispatcherIds = [DISPATCHER_ID, 'user-sarah-dispatcher'];
+
+  const mayJobs = [
+    { customer: 'cust-001', date: '2026-05-02T09:00:00', durHr: 2, type: 'repair', cat: 'plumbing', desc: 'Leaking shower head, replace + recaulk', revenue: 240, status: 'scheduled' },
+    { customer: 'cust-002', date: '2026-05-02T13:00:00', durHr: 3, type: 'install', cat: 'electrical', desc: 'Install smart thermostat + 2 dimmer switches', revenue: 420, status: 'scheduled' },
+    { customer: 'cust-003', date: '2026-05-03T10:00:00', durHr: 4, type: 'install', cat: 'carpentry', desc: 'Build floating shelves in living room (3 shelves, oak)', revenue: 580, status: 'scheduled' },
+    { customer: 'cust-005', date: '2026-05-05T08:00:00', durHr: 6, type: 'repair', cat: 'plumbing', desc: 'Replace bathroom toilet + supply line + flange', revenue: 720, status: 'scheduled' },
+    { customer: 'cust-006', date: '2026-05-06T09:00:00', durHr: 8, type: 'maintenance', cat: 'general', desc: 'Monthly building maintenance — 8 units', revenue: 2400, status: 'scheduled' },
+    { customer: 'cust-008', date: '2026-05-07T11:00:00', durHr: 2, type: 'repair', cat: 'general', desc: 'Patch drywall hole in hallway, paint match', revenue: 220, status: 'scheduled' },
+    { customer: 'cust-004', date: '2026-05-08T13:00:00', durHr: 3, type: 'install', cat: 'general', desc: 'Mount 3 paintings + curtain rods (2 windows)', revenue: 280, status: 'scheduled' },
+    { customer: 'cust-007', date: '2026-05-10T09:00:00', durHr: 5, type: 'install', cat: 'electrical', desc: 'Install ceiling fan + recessed lighting (4 units)', revenue: 840, status: 'scheduled' },
+    { customer: 'cust-009', date: '2026-05-12T10:00:00', durHr: 4, type: 'repair', cat: 'plumbing', desc: 'Replace garbage disposal + check dishwasher hookup', revenue: 380, status: 'scheduled' },
+    { customer: 'cust-010', date: '2026-05-14T14:00:00', durHr: 3, type: 'install', cat: 'general', desc: 'TV mount (75"), reroute HDMI through wall', revenue: 320, status: 'scheduled' },
+    { customer: 'cust-001', date: '2026-05-16T09:00:00', durHr: 2, type: 'repair', cat: 'electrical', desc: 'Outlet not working in master bath, check GFCI', revenue: 180, status: 'scheduled' },
+    { customer: 'cust-006', date: '2026-05-18T08:00:00', durHr: 8, type: 'maintenance', cat: 'general', desc: 'Quarterly inspection — all building systems', revenue: 1800, status: 'scheduled' },
+    { customer: 'cust-002', date: '2026-05-20T13:00:00', durHr: 4, type: 'install', cat: 'plumbing', desc: 'Install whole-house water filter system', revenue: 920, status: 'scheduled' },
+    { customer: 'cust-005', date: '2026-05-22T09:00:00', durHr: 3, type: 'repair', cat: 'carpentry', desc: 'Repair backyard fence (4 panels), replace 2 posts', revenue: 540, status: 'scheduled' },
+    { customer: 'cust-003', date: '2026-05-24T10:00:00', durHr: 6, type: 'install', cat: 'painting', desc: 'Paint master bedroom + accent wall (3 colors)', revenue: 850, status: 'scheduled' },
+  ];
+
+  for (let i = 0; i < mayJobs.length; i++) {
+    const j = mayJobs[i];
+    const tech = techIds[i % techIds.length];
+    const dispatcher = dispatcherIds[i % dispatcherIds.length];
+    const start = new Date(j.date);
+    const end = new Date(start.getTime() + j.durHr * 3600_000);
+    const id = `job-may-${String(i + 1).padStart(3, '0')}`;
+    const num = `J-2026-${String(100 + i).padStart(4, '0')}`;
+    await db.job.upsert({
+      where: { id },
+      create: {
+        id, orgId: ORG_ID, jobNumber: num,
+        customerId: j.customer, propertyId: `prop-${j.customer}`,
+        leadId: null, jobType: j.type, category: j.cat, description: j.desc,
+        status: j.status, priority: 'normal',
+        assignedTechnicianId: tech, dispatcherId: dispatcher,
+        scheduledStart: start, scheduledEnd: end,
+        estimatedRevenue: j.revenue,
+      },
+      update: {},
+    });
+  }
+  console.log(`  ${mayJobs.length} May 2026 jobs: OK`);
+
+  // ── 5 more invoices (mix of statuses) ─────────────────────────────────────
+  const extraInvoices = [
+    { id: 'inv-003', jobId: 'job-003', customerId: 'cust-003', num: 'INV-2026-0003',
+      status: 'paid', subtotal: 340, total: 340, amountPaid: 340,
+      sent: '2026-04-18T11:00:00', paid: '2026-04-19T10:30:00' },
+    { id: 'inv-004', jobId: 'job-001', customerId: 'cust-001', num: 'INV-2026-0004',
+      status: 'sent', subtotal: 280, total: 280, amountPaid: 0,
+      sent: '2026-04-20T17:00:00' },
+    { id: 'inv-005', jobId: 'job-009', customerId: 'cust-009', num: 'INV-2026-0005',
+      status: 'overdue', subtotal: 380, total: 380, amountPaid: 0,
+      sent: '2026-04-10T16:00:00' },
+    { id: 'inv-006', jobId: 'job-005', customerId: 'cust-005', num: 'INV-2026-0006',
+      status: 'paid', subtotal: 1200, total: 1200, amountPaid: 1200,
+      sent: '2026-04-19T18:00:00', paid: '2026-04-20T08:15:00' },
+    { id: 'inv-007', jobId: 'job-007', customerId: 'cust-007', num: 'INV-2026-0007',
+      status: 'draft', subtotal: 1800, total: 1800, amountPaid: 0 },
+  ];
+  for (const inv of extraInvoices) {
+    await db.invoice.upsert({
+      where: { id: inv.id },
+      create: {
+        id: inv.id, orgId: ORG_ID, jobId: inv.jobId, customerId: inv.customerId,
+        invoiceNumber: inv.num, status: inv.status,
+        subtotal: inv.subtotal, tax: 0, total: inv.total, amountPaid: inv.amountPaid,
+        dueDate: new Date('2026-05-15'),
+        sentAt: (inv as any).sent ? new Date((inv as any).sent) : null,
+        paidAt: (inv as any).paid ? new Date((inv as any).paid) : null,
+      },
+      update: {},
+    });
+  }
+  console.log(`  ${extraInvoices.length} extra invoices: OK`);
+
+  // ── 5 payments tied to paid invoices ──────────────────────────────────────
+  const payments = [
+    { id: 'pay-001', invoiceId: 'inv-002', amount: 260, method: 'card', stripeChargeId: 'ch_test_001', paidAt: '2026-04-16T15:30:00' },
+    { id: 'pay-002', invoiceId: 'inv-003', amount: 340, method: 'card', stripeChargeId: 'ch_test_002', paidAt: '2026-04-19T10:30:00' },
+    { id: 'pay-003', invoiceId: 'inv-006', amount: 1200, method: 'ach', stripeChargeId: 'pi_test_003', paidAt: '2026-04-20T08:15:00' },
+    { id: 'pay-004', invoiceId: 'inv-004', amount: 100, method: 'cash', stripeChargeId: null, paidAt: '2026-04-22T12:00:00' },
+    { id: 'pay-005', invoiceId: 'inv-005', amount: 50, method: 'check', stripeChargeId: null, paidAt: '2026-04-23T11:00:00' },
+  ];
+  for (const p of payments) {
+    await db.payment.upsert({
+      where: { id: p.id },
+      create: {
+        id: p.id, orgId: ORG_ID, invoiceId: p.invoiceId,
+        amount: p.amount, method: p.method,
+        stripePaymentIntentId: p.stripeChargeId,
+        receivedAt: new Date(p.paidAt),
+      },
+      update: {},
+    });
+  }
+  console.log(`  ${payments.length} payments: OK`);
+
+  // ── 10 estimates (mix sent / approved / declined / draft) ─────────────────
+  const estimates = [
+    { id: 'est-001', jobId: 'job-007', customerId: 'cust-007', num: 'EST-2026-0001', status: 'approved', subtotal: 1800, total: 1800 },
+    { id: 'est-002', jobId: 'job-005', customerId: 'cust-005', num: 'EST-2026-0002', status: 'approved', subtotal: 1200, total: 1200 },
+    { id: 'est-003', jobId: 'job-006', customerId: 'cust-006', num: 'EST-2026-0003', status: 'approved', subtotal: 2400, total: 2400 },
+    { id: 'est-004', jobId: 'job-002', customerId: 'cust-002', num: 'EST-2026-0004', status: 'sent', subtotal: 680, total: 680 },
+    { id: 'est-005', jobId: 'job-may-005', customerId: 'cust-006', num: 'EST-2026-0005', status: 'sent', subtotal: 2400, total: 2400 },
+    { id: 'est-006', jobId: 'job-may-008', customerId: 'cust-007', num: 'EST-2026-0006', status: 'sent', subtotal: 840, total: 840 },
+    { id: 'est-007', jobId: 'job-may-013', customerId: 'cust-002', num: 'EST-2026-0007', status: 'draft', subtotal: 920, total: 920 },
+    { id: 'est-008', jobId: 'job-may-015', customerId: 'cust-003', num: 'EST-2026-0008', status: 'sent', subtotal: 850, total: 850 },
+    { id: 'est-009', jobId: 'job-010', customerId: 'cust-010', num: 'EST-2026-0009', status: 'declined', subtotal: 220, total: 220 },
+    { id: 'est-010', jobId: 'job-may-003', customerId: 'cust-003', num: 'EST-2026-0010', status: 'sent', subtotal: 580, total: 580 },
+  ];
+  for (const e of estimates) {
+    await db.estimate.upsert({
+      where: { id: e.id },
+      create: {
+        id: e.id, orgId: ORG_ID, jobId: e.jobId, customerId: e.customerId,
+        estimateNumber: e.num, status: e.status,
+        subtotal: e.subtotal, tax: 0, total: e.total,
+        validUntil: new Date('2026-06-01'),
+      },
+      update: {},
+    });
+  }
+  console.log(`  ${estimates.length} estimates: OK`);
+
   console.log('\nSeed complete!');
-  console.log(`  Org ID    : ${ORG_ID}`);
-  console.log(`  Admin ID  : ${ADMIN_ID}`);
-  console.log(`  Customers : ${customers.length}`);
-  console.log(`  Leads     : ${leads.length}`);
-  console.log(`  Jobs      : ${jobs.length}`);
+  console.log(`  Org ID      : ${ORG_ID}`);
+  console.log(`  Admin ID    : ${ADMIN_ID}`);
+  console.log(`  Customers   : ${customers.length}`);
+  console.log(`  Leads       : ${leads.length}`);
+  console.log(`  Jobs        : ${jobs.length} historical + ${mayJobs.length} May = ${jobs.length + mayJobs.length} total`);
+  console.log(`  Invoices    : ${2 + extraInvoices.length}`);
+  console.log(`  Payments    : ${payments.length}`);
+  console.log(`  Estimates   : ${estimates.length}`);
+  console.log(`  Technicians : ${technicians.length}`);
+  console.log(`  Dispatchers : 2 (David, Sarah)`);
+  console.log(`  Cities      : 8 (Miami, Austin, Atlanta, Philadelphia, Charlotte, DC, Chicago, Tampa, Houston)`);
 }
 
 main()
