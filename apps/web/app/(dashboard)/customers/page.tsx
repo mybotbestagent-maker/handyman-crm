@@ -18,9 +18,15 @@ import {
   Star,
   ArrowLeft,
   Loader2,
+  TrendingUp,
+  Wallet,
+  AlertCircle,
+  Clock,
+  Receipt,
+  Wrench,
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatPhone } from '@/lib/utils';
-import { CustomerTypeBadge } from '@/components/shared/status-badges';
+import { CustomerTypeBadge, InvoiceStatusBadge } from '@/components/shared/status-badges';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -59,90 +65,213 @@ function CustomerDetail({
     }
   })();
 
+  const stats = (customer as any).stats ?? {
+    totalSpent: 0,
+    totalInvoiced: 0,
+    outstandingBalance: 0,
+    avgTicket: 0,
+    totalJobs: customer.jobs?.length ?? 0,
+    completedJobs: 0,
+    firstService: null,
+    lastService: null,
+    daysSinceLast: null,
+    categoryBreakdown: {},
+    overdueCount: 0,
+    invoiceCount: 0,
+  };
+
+  const topCategories = Object.entries(stats.categoryBreakdown as Record<string, number>)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 4);
+
   return (
-    <div className="p-6 space-y-6 max-w-3xl">
+    <div className="px-4 md:px-10 py-8 md:py-10 max-w-[1400px] mx-auto space-y-8 mt-12 md:mt-0">
       {/* Back */}
       <button
         onClick={onBack}
-        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to customers
       </button>
 
-      {/* Header */}
-      <div className="flex items-start justify-between rounded-xl border bg-card p-6 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-xl font-bold text-primary-foreground">
+      {/* Hero header */}
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 border-b border-border pb-6 md:pb-8">
+        <div className="flex items-center gap-5">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[hsl(var(--primary))] text-2xl font-black text-white shrink-0">
             {customer.type === 'commercial' ? (
-              <Building2 className="h-6 w-6" />
+              <Building2 className="h-7 w-7" />
             ) : (
               customer.billingName.charAt(0).toUpperCase()
             )}
           </div>
           <div>
-            <h2 className="text-xl font-bold">{customer.billingName}</h2>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-3">
+              Customer · {customer.type}
+              {customer.source && ` · via ${customer.source.replace(/_/g, ' ')}`}
+            </p>
+            <h1 className="hero-headline !text-[36px] md:!text-[48px]">{customer.billingName}</h1>
             {customer.companyName && (
-              <p className="text-sm text-muted-foreground">{customer.companyName}</p>
+              <p className="mt-2 text-[14px] text-muted-foreground">{customer.companyName}</p>
             )}
-            <div className="mt-1 flex items-center gap-2">
-              <CustomerTypeBadge type={customer.type} />
-              {customer.source && (
-                <span className="text-xs text-muted-foreground capitalize">
-                  via {customer.source.replace(/_/g, ' ')}
-                </span>
-              )}
-            </div>
           </div>
         </div>
-        <Button size="sm" variant="outline" onClick={() => onEdit(customer.id)}>
-          Edit
-        </Button>
-      </div>
-
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-xl border bg-card p-4 shadow-sm">
-          <p className="text-xs text-muted-foreground">Lifetime Value</p>
-          <p className="mt-1 text-xl font-bold text-primary">
-            {formatCurrency(Number(customer.lifetimeValue))}
-          </p>
-        </div>
-        <div className="rounded-xl border bg-card p-4 shadow-sm">
-          <p className="text-xs text-muted-foreground">Total Jobs</p>
-          <p className="mt-1 text-xl font-bold">{customer.jobs?.length ?? 0}</p>
-        </div>
-        <div className="rounded-xl border bg-card p-4 shadow-sm">
-          <p className="text-xs text-muted-foreground">Last Service</p>
-          <p className="mt-1 text-sm font-semibold">
-            {customer.lastServiceAt ? formatDate(customer.lastServiceAt) : '—'}
-          </p>
+        <div className="flex items-center gap-2 self-start md:self-auto">
+          <Button size="sm" variant="outline" onClick={() => onEdit(customer.id)}>
+            Edit
+          </Button>
+          <Button size="sm" className="btn-orange !py-2 !px-4 !text-[13px]">
+            <Plus className="h-4 w-4 mr-1.5" />
+            New Job
+          </Button>
         </div>
       </div>
 
-      {/* Contact info */}
-      <div className="rounded-xl border bg-card p-6 shadow-sm">
-        <h3 className="text-sm font-semibold mb-4">Contact Info</h3>
-        <div className="space-y-3">
-          <div className="flex items-center gap-3 text-sm">
-            <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span>{formatPhone(customer.phone)}</span>
+      {/* Auto-calculated stats — 4 big cards */}
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="card-premium p-7">
+          <div className="flex items-center justify-between mb-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Total Spent
+            </p>
+            <Wallet className="h-[18px] w-[18px] text-muted-foreground/60" />
           </div>
-          {customer.email && (
-            <div className="flex items-center gap-3 text-sm">
-              <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span>{customer.email}</span>
-            </div>
-          )}
-          {address?.line1 && (
-            <div className="flex items-start gap-3 text-sm">
-              <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-              <span>
-                {address.line1}
-                {address.line2 ? `, ${address.line2}` : ''}
-                <br />
-                {address.city}, {address.state} {address.zip}
+          <p className="stat-display text-[hsl(var(--primary))]">
+            {formatCurrency(stats.totalSpent)}
+          </p>
+          <p className="mt-2 text-[13px] text-muted-foreground">
+            From {stats.invoiceCount} invoice{stats.invoiceCount !== 1 ? 's' : ''}
+          </p>
+        </div>
+
+        <div className="card-premium p-7">
+          <div className="flex items-center justify-between mb-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Avg Ticket
+            </p>
+            <TrendingUp className="h-[18px] w-[18px] text-muted-foreground/60" />
+          </div>
+          <p className="stat-display">{formatCurrency(stats.avgTicket)}</p>
+          <p className="mt-2 text-[13px] text-muted-foreground">
+            {stats.completedJobs} completed job{stats.completedJobs !== 1 ? 's' : ''}
+          </p>
+        </div>
+
+        <div className="card-premium p-7">
+          <div className="flex items-center justify-between mb-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Total Jobs
+            </p>
+            <Briefcase className="h-[18px] w-[18px] text-muted-foreground/60" />
+          </div>
+          <p className="stat-display">{stats.totalJobs}</p>
+          <p className="mt-2 text-[13px] text-muted-foreground">
+            {stats.lastService
+              ? `Last: ${formatDate(stats.lastService)} · ${stats.daysSinceLast ?? 0}d ago`
+              : 'No service yet'}
+          </p>
+        </div>
+
+        <div
+          className={`card-premium p-7 ${
+            stats.outstandingBalance > 0 ? 'border-amber-300 bg-amber-50/40' : ''
+          }`}
+        >
+          <div className="flex items-center justify-between mb-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Outstanding
+            </p>
+            {stats.overdueCount > 0 ? (
+              <AlertCircle className="h-[18px] w-[18px] text-red-500" />
+            ) : (
+              <DollarSign className="h-[18px] w-[18px] text-muted-foreground/60" />
+            )}
+          </div>
+          <p
+            className={`stat-display ${
+              stats.outstandingBalance > 0 ? 'text-amber-600' : 'text-muted-foreground'
+            }`}
+          >
+            {formatCurrency(stats.outstandingBalance)}
+          </p>
+          <p className="mt-2 text-[13px] text-muted-foreground">
+            {stats.overdueCount > 0 ? (
+              <span className="text-red-600 font-medium">
+                {stats.overdueCount} overdue
               </span>
+            ) : (
+              'All clear'
+            )}
+          </p>
+        </div>
+      </div>
+
+      {/* Two-column: contact + categories */}
+      <div className="grid gap-5 lg:grid-cols-3">
+        {/* Contact card */}
+        <div className="card-premium p-7 lg:col-span-2">
+          <div className="flex items-center gap-2 mb-6">
+            <User className="h-[18px] w-[18px] text-muted-foreground/60" />
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Contact
+            </h3>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex items-center gap-3">
+              <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+              <a href={`tel:${customer.phone}`} className="text-[14px] hover:text-[hsl(var(--primary))]">
+                {formatPhone(customer.phone)}
+              </a>
+            </div>
+            {customer.email && (
+              <div className="flex items-center gap-3">
+                <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                <a href={`mailto:${customer.email}`} className="text-[14px] hover:text-[hsl(var(--primary))] truncate">
+                  {customer.email}
+                </a>
+              </div>
+            )}
+            {address?.line1 && (
+              <div className="flex items-start gap-3 sm:col-span-2">
+                <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                <p className="text-[14px]">
+                  {address.line1}
+                  {address.line2 ? `, ${address.line2}` : ''} · {address.city}, {address.state} {address.zip}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Service mix */}
+        <div className="card-premium p-7">
+          <div className="flex items-center gap-2 mb-6">
+            <Wrench className="h-[18px] w-[18px] text-muted-foreground/60" />
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Service Mix
+            </h3>
+          </div>
+          {topCategories.length === 0 ? (
+            <p className="text-[13px] text-muted-foreground">No jobs yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {topCategories.map(([cat, count]) => {
+                const pct = stats.totalJobs > 0 ? (count / stats.totalJobs) * 100 : 0;
+                return (
+                  <div key={cat}>
+                    <div className="flex justify-between text-[12px] mb-1">
+                      <span className="capitalize font-medium">{cat}</span>
+                      <span className="text-muted-foreground">{count}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-[hsl(var(--primary))] rounded-full transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -150,25 +279,39 @@ function CustomerDetail({
 
       {/* Properties */}
       {customer.properties && customer.properties.length > 0 && (
-        <div className="rounded-xl border bg-card p-6 shadow-sm">
-          <h3 className="text-sm font-semibold mb-4">Properties ({customer.properties.length})</h3>
-          <div className="space-y-2">
+        <div className="card-premium p-7">
+          <div className="flex items-center gap-2 mb-6">
+            <MapPin className="h-[18px] w-[18px] text-muted-foreground/60" />
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Properties ({customer.properties.length})
+            </h3>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
             {customer.properties.map((prop: any) => (
-              <div key={prop.id} className="flex items-start gap-3 rounded-lg border p-3 text-sm">
-                <MapPin className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium">
-                    {prop.addressLine1}
-                    {prop.isPrimary && (
-                      <span className="ml-2 text-xs text-muted-foreground">(primary)</span>
+              <div
+                key={prop.id}
+                className="rounded-lg border border-border p-4 text-[13px] hover:border-[hsl(var(--primary))]/40 transition-colors"
+              >
+                <div className="flex items-start gap-2">
+                  <MapPin className="h-4 w-4 text-[hsl(var(--primary))] shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">
+                      {prop.addressLine1}
+                      {prop.isPrimary && (
+                        <span className="ml-2 text-[10px] uppercase tracking-wider text-[hsl(var(--primary))] font-semibold">
+                          Primary
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-muted-foreground text-[12px]">
+                      {prop.city}, {prop.state} {prop.zip}
+                    </p>
+                    {prop.accessNotes && (
+                      <p className="mt-2 text-[11px] text-amber-700 bg-amber-50 px-2 py-1 rounded">
+                        Note: {prop.accessNotes}
+                      </p>
                     )}
-                  </p>
-                  <p className="text-muted-foreground">
-                    {prop.city}, {prop.state} {prop.zip}
-                  </p>
-                  {prop.accessNotes && (
-                    <p className="mt-1 text-xs text-amber-600">Note: {prop.accessNotes}</p>
-                  )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -176,36 +319,127 @@ function CustomerDetail({
         </div>
       )}
 
-      {/* Recent jobs */}
+      {/* Jobs history */}
       {customer.jobs && customer.jobs.length > 0 && (
-        <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-          <div className="border-b px-6 py-4">
-            <h3 className="text-sm font-semibold">Recent Jobs</h3>
+        <div className="card-premium overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border px-7 py-5">
+            <div className="flex items-center gap-2">
+              <Briefcase className="h-[18px] w-[18px] text-muted-foreground/60" />
+              <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Job History ({customer.jobs.length})
+              </h3>
+            </div>
           </div>
-          <div className="divide-y">
-            {customer.jobs.slice(0, 5).map((job: any) => (
-              <div key={job.id} className="flex items-center justify-between px-6 py-3 text-sm hover:bg-muted/30 transition-colors">
-                <div>
-                  <span className="font-mono text-xs font-medium text-primary mr-3">
-                    {job.jobNumber}
-                  </span>
-                  <span className="font-medium capitalize">{job.category}</span>
-                  <span className="ml-2 text-muted-foreground text-xs">
-                    {job.createdAt ? formatDate(job.createdAt) : ''}
-                  </span>
-                </div>
-                <JobStatusBadge status={job.status} />
-              </div>
-            ))}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/40">
+                  <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Job #</th>
+                  <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Category</th>
+                  <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide hidden md:table-cell">Tech</th>
+                  <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Scheduled</th>
+                  <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {customer.jobs.map((job: any) => (
+                  <tr key={job.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-6 py-3 font-mono text-[12px] font-bold text-[hsl(var(--primary))]">
+                      {job.jobNumber}
+                    </td>
+                    <td className="px-6 py-3 capitalize">{job.category}</td>
+                    <td className="px-6 py-3 text-muted-foreground hidden md:table-cell">
+                      {job.technician?.user?.fullName ?? <span className="text-[12px]">Unassigned</span>}
+                    </td>
+                    <td className="px-6 py-3 text-muted-foreground font-mono text-[12px] hidden sm:table-cell">
+                      {job.scheduledStart
+                        ? new Date(job.scheduledStart).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: '2-digit',
+                          })
+                        : '—'}
+                    </td>
+                    <td className="px-6 py-3">
+                      <JobStatusBadge status={job.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Invoices history */}
+      {customer.invoices && customer.invoices.length > 0 && (
+        <div className="card-premium overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border px-7 py-5">
+            <div className="flex items-center gap-2">
+              <Receipt className="h-[18px] w-[18px] text-muted-foreground/60" />
+              <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Invoices ({customer.invoices.length})
+              </h3>
+            </div>
+            <p className="text-[12px] text-muted-foreground">
+              {formatCurrency(stats.totalSpent)} of {formatCurrency(stats.totalInvoiced)} paid
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/40">
+                  <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Invoice #</th>
+                  <th className="px-6 py-3 text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Amount</th>
+                  <th className="px-6 py-3 text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Paid</th>
+                  <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide hidden md:table-cell">Due</th>
+                  <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {customer.invoices.map((inv: any) => {
+                  const balance = Number(inv.total) - Number(inv.amountPaid);
+                  const isOverdue =
+                    inv.status !== 'paid' &&
+                    new Date(inv.dueDate).getTime() < Date.now() &&
+                    balance > 0;
+                  return (
+                    <tr key={inv.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-6 py-3 font-mono text-[12px] font-bold">{inv.invoiceNumber}</td>
+                      <td className="px-6 py-3 text-right font-medium">
+                        {formatCurrency(Number(inv.total))}
+                      </td>
+                      <td className="px-6 py-3 text-right text-muted-foreground hidden sm:table-cell">
+                        {formatCurrency(Number(inv.amountPaid))}
+                      </td>
+                      <td className="px-6 py-3 text-muted-foreground font-mono text-[12px] hidden md:table-cell">
+                        {new Date(inv.dueDate).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: '2-digit',
+                        })}
+                      </td>
+                      <td className="px-6 py-3">
+                        <InvoiceStatusBadge status={isOverdue ? 'overdue' : inv.status} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
       {/* Notes */}
       {customer.notes && (
-        <div className="rounded-xl border bg-card p-6 shadow-sm">
-          <h3 className="text-sm font-semibold mb-2">Notes</h3>
-          <p className="text-sm text-muted-foreground whitespace-pre-wrap">{customer.notes}</p>
+        <div className="card-premium p-7">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-3">
+            Notes
+          </h3>
+          <p className="text-[14px] text-foreground/80 whitespace-pre-wrap leading-relaxed">
+            {customer.notes}
+          </p>
         </div>
       )}
     </div>

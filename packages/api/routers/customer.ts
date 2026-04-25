@@ -74,14 +74,20 @@ export const customerRouter = router({
       const customer = await ctx.db.customer.findFirst({
         where: { id: input.id, orgId: ctx.orgId! },
         include: {
-          properties: true,
+          properties: { orderBy: { isPrimary: 'desc' } },
           jobs: {
             orderBy: { createdAt: 'desc' },
-            take: 10,
-            include: { technician: { include: { user: true } } },
+            include: {
+              technician: { include: { user: true } },
+              property: true,
+            },
           },
-          invoices: { orderBy: { createdAt: 'desc' }, take: 5 },
+          invoices: {
+            orderBy: { createdAt: 'desc' },
+            include: { payments: true },
+          },
           calls: { orderBy: { startedAt: 'desc' }, take: 5 },
+          estimates: { orderBy: { createdAt: 'desc' }, take: 10 },
         },
       });
 
@@ -89,7 +95,58 @@ export const customerRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Customer not found' });
       }
 
-      return customer;
+      // ── Auto-calculated stats ────────────────────────────────────────────
+      const activeInvoices = customer.invoices.filter((i) => i.status !== 'voided');
+      const totalInvoiced = activeInvoices.reduce((s, i) => s + Number(i.total), 0);
+      const totalSpent = activeInvoices.reduce((s, i) => s + Number(i.amountPaid), 0);
+      const outstandingBalance = activeInvoices.reduce(
+        (s, i) => s + Math.max(Number(i.total) - Number(i.amountPaid), 0),
+        0,
+      );
+
+      const completedJobs = customer.jobs.filter((j) =>
+        ['completed', 'paid', 'invoiced'].includes(j.status),
+      );
+      const avgTicket = completedJobs.length > 0 ? totalSpent / completedJobs.length : 0;
+
+      const sortedByDate = [...customer.jobs]
+        .filter((j) => j.scheduledStart)
+        .sort((a, b) => (a.scheduledStart!.getTime() - b.scheduledStart!.getTime()));
+      const firstService = sortedByDate[0]?.scheduledStart ?? null;
+      const lastService = sortedByDate[sortedByDate.length - 1]?.scheduledStart ?? null;
+      const daysSinceLast = lastService
+        ? Math.floor((Date.now() - lastService.getTime()) / 86400000)
+        : null;
+
+      const categoryBreakdown: Record<string, number> = {};
+      customer.jobs.forEach((j) => {
+        categoryBreakdown[j.category] = (categoryBreakdown[j.category] ?? 0) + 1;
+      });
+
+      const overdueCount = activeInvoices.filter(
+        (i) =>
+          i.status !== 'paid' &&
+          i.dueDate.getTime() < Date.now() &&
+          Number(i.total) - Number(i.amountPaid) > 0,
+      ).length;
+
+      return {
+        ...customer,
+        stats: {
+          totalSpent,
+          totalInvoiced,
+          outstandingBalance,
+          avgTicket,
+          totalJobs: customer.jobs.length,
+          completedJobs: completedJobs.length,
+          firstService,
+          lastService,
+          daysSinceLast,
+          categoryBreakdown,
+          overdueCount,
+          invoiceCount: activeInvoices.length,
+        },
+      };
     }),
 
   create: protectedProcedure
