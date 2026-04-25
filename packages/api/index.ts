@@ -5,7 +5,10 @@ import { jobRouter } from './routers/job';
 import { leadRouter } from './routers/lead';
 import { technicianRouter } from './routers/technician';
 import { dashboardRouter } from './routers/dashboard';
-import { opportunityRouter } from './routers/opportunity';
+// T-CORE-OPPORTUNITY Step 4 router exists at routers/opportunity.ts but is
+// INTENTIONALLY NOT EXPOSED until Farrukh reviews the design (per his
+// stop-line at Step 3 — see migration-log.md).
+// import { opportunityRouter } from './routers/opportunity';
 
 export const appRouter = router({
   auth: authRouter,
@@ -14,8 +17,6 @@ export const appRouter = router({
   lead: leadRouter,
   technician: technicianRouter,
   dashboard: dashboardRouter,
-  // T-CORE-OPPORTUNITY: shadow router. UI not migrated yet — old job/lead routers remain in use.
-  opportunity: opportunityRouter,
 });
 
 export type AppRouter = typeof appRouter;
