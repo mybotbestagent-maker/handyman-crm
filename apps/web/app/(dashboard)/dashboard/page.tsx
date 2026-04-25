@@ -125,19 +125,19 @@ export default function DashboardPage() {
     <>
       <Topbar title="Dashboard" />
 
-      <div className="px-10 py-12 max-w-[1400px] mx-auto space-y-10">
-        {/* Hero header */}
-        <div className="flex items-end justify-between border-b border-border pb-8">
+      <div className="px-4 md:px-10 py-8 md:py-12 max-w-[1400px] mx-auto space-y-8 md:space-y-10">
+        {/* Hero header — mobile padding for burger button (top-12) */}
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 border-b border-border pb-6 md:pb-8 mt-12 md:mt-0">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-3">
               Operations · Live
             </p>
             <h1 className="hero-headline">Today at Gold Hands.</h1>
-            <p className="mt-3 text-[15px] text-muted-foreground max-w-md">
+            <p className="mt-3 text-[14px] md:text-[15px] text-muted-foreground max-w-md">
               Real-time view across every active job, technician and invoice — all 8 cities at once.
             </p>
           </div>
-          <Link href="/jobs?new=1" className="btn-orange hidden md:inline-flex items-center gap-2 text-[14px]">
+          <Link href="/jobs?new=1" className="btn-orange inline-flex items-center justify-center gap-2 text-[14px] self-start md:self-auto">
             New Job →
           </Link>
         </div>
