@@ -27,8 +27,6 @@ function StatCard({
   value,
   sub,
   icon: Icon,
-  iconBg = 'bg-primary/10',
-  iconColor = 'text-primary',
   trend,
   href,
 }: {
@@ -42,27 +40,25 @@ function StatCard({
   href?: string;
 }) {
   const content = (
-    <div className="rounded-xl border bg-card p-6 shadow-sm hover:shadow-md transition-shadow">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-muted-foreground">{label}</p>
-        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconBg}`}>
-          <Icon className={`h-4 w-4 ${iconColor}`} />
-        </div>
+    <div className="card-premium p-7 transition-all hover:-translate-y-0.5">
+      <div className="flex items-center justify-between mb-6">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          {label}
+        </p>
+        <Icon className="h-[18px] w-[18px] text-muted-foreground/60" strokeWidth={1.6} />
       </div>
-      <div className="mt-3">
-        <p className="text-2xl font-bold">{value}</p>
-        {sub && <p className="mt-1 text-xs text-muted-foreground">{sub}</p>}
-      </div>
+      <p className="stat-display">{value}</p>
+      {sub && <p className="mt-2 text-[13px] text-muted-foreground">{sub}</p>}
       {trend && (
         <div
-          className={`mt-3 flex items-center gap-1 text-xs font-medium ${
+          className={`mt-4 flex items-center gap-1.5 text-[12px] font-semibold ${
             trend.up ? 'text-green-600' : 'text-destructive'
           }`}
         >
           {trend.up ? (
-            <TrendingUp className="h-3 w-3" />
+            <TrendingUp className="h-3.5 w-3.5" />
           ) : (
-            <TrendingDown className="h-3 w-3" />
+            <TrendingDown className="h-3.5 w-3.5" />
           )}
           {trend.value} vs last month
         </div>
@@ -129,7 +125,23 @@ export default function DashboardPage() {
     <>
       <Topbar title="Dashboard" />
 
-      <div className="p-6 space-y-6">
+      <div className="px-10 py-12 max-w-[1400px] mx-auto space-y-10">
+        {/* Hero header */}
+        <div className="flex items-end justify-between border-b border-border pb-8">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-3">
+              Operations · Live
+            </p>
+            <h1 className="hero-headline">Today at Gold Hands.</h1>
+            <p className="mt-3 text-[15px] text-muted-foreground max-w-md">
+              Real-time view across every active job, technician and invoice — all 8 cities at once.
+            </p>
+          </div>
+          <Link href="/jobs?new=1" className="btn-orange hidden md:inline-flex items-center gap-2 text-[14px]">
+            New Job →
+          </Link>
+        </div>
+
         {isLoading ? (
           <div className="flex items-center justify-center p-20">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -137,7 +149,7 @@ export default function DashboardPage() {
         ) : (
           <>
             {/* Stats row */}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               <StatCard
                 label="Jobs This Month"
                 value={stats?.totalJobs ?? 0}
@@ -195,22 +207,19 @@ export default function DashboardPage() {
                   <Link
                     key={s.key}
                     href={`/jobs`}
-                    className="rounded-xl border bg-card p-4 text-center shadow-sm hover:shadow-md transition-shadow"
+                    className="card-premium p-5 text-center transition-all hover:-translate-y-0.5"
                   >
-                    <div className={`mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-lg ${s.bg}`}>
-                      <s.Icon className={`h-4 w-4 ${s.color}`} />
-                    </div>
-                    <p className="text-2xl font-bold">{jobsByStatus[s.key] ?? 0}</p>
-                    <p className="text-xs text-muted-foreground">{s.label}</p>
+                    <p className="stat-display !text-[32px]">{jobsByStatus[s.key] ?? 0}</p>
+                    <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{s.label}</p>
                   </Link>
                 ))}
               </div>
 
               {/* Status distribution chart */}
-              <div className="rounded-xl border bg-card p-6 shadow-sm">
-                <div className="flex items-center gap-2 mb-5">
-                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold">Jobs by Status</h3>
+              <div className="card-premium p-7">
+                <div className="flex items-center gap-2 mb-6">
+                  <BarChart3 className="h-[18px] w-[18px] text-muted-foreground/60" strokeWidth={1.6} />
+                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Jobs by Status</h3>
                 </div>
                 <div className="space-y-3">
                   {[
@@ -240,11 +249,11 @@ export default function DashboardPage() {
             </div>
 
             {/* Recent jobs table */}
-            <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between border-b px-6 py-4">
-                <h2 className="text-sm font-semibold">Recent Jobs</h2>
-                <Link href="/jobs" className="text-xs text-primary hover:underline">
-                  View all
+            <div className="card-premium overflow-hidden">
+              <div className="flex items-center justify-between border-b border-border px-7 py-5">
+                <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Recent Jobs</h2>
+                <Link href="/jobs" className="text-[12px] font-medium text-[hsl(var(--primary))] hover:underline">
+                  View all →
                 </Link>
               </div>
 
