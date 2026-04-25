@@ -200,6 +200,8 @@ function CustomerDetail({
               <span className="text-red-600 font-medium">
                 {stats.overdueCount} overdue
               </span>
+            ) : stats.outstandingBalance > 0 ? (
+              <span className="text-amber-700 font-medium">Pending payment</span>
             ) : (
               'All clear'
             )}
