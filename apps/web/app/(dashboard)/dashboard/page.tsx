@@ -45,7 +45,7 @@ function StatCard({
         <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           {label}
         </p>
-        <Icon className="h-[18px] w-[18px] text-muted-foreground/60" strokeWidth={1.6} />
+        <Icon className="h-[18px] w-[18px] text-muted-foreground/60"  />
       </div>
       <p className="stat-display">{value}</p>
       {sub && <p className="mt-2 text-[13px] text-muted-foreground">{sub}</p>}
@@ -218,7 +218,7 @@ export default function DashboardPage() {
               {/* Status distribution chart */}
               <div className="card-premium p-7">
                 <div className="flex items-center gap-2 mb-6">
-                  <BarChart3 className="h-[18px] w-[18px] text-muted-foreground/60" strokeWidth={1.6} />
+                  <BarChart3 className="h-[18px] w-[18px] text-muted-foreground/60"  />
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Jobs by Status</h3>
                 </div>
                 <div className="space-y-3">
