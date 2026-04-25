@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { protectedProcedure, router } from '../trpc';
+import { protectedProcedure, router, requireRoles } from '../trpc';
 import { TRPCError } from '@trpc/server';
 import { jobFinancials, jobTimeOnSiteMinutes, jobScheduleVarianceMinutes } from '../lib/business-rules';
 
@@ -61,13 +61,26 @@ export const jobRouter = router({
     .query(async ({ ctx, input }) => {
       const { status, technicianId, category, city, unassignedOnly, from, to, limit, cursor } = input;
 
+      // Tech scope: only see jobs assigned to themselves (overrides any technicianId/unassignedOnly filter)
+      let techScope: string | null | undefined = undefined;
+      if (ctx.session!.user.role === 'tech') {
+        const tech = await ctx.db.technician.findUnique({
+          where: { userId: ctx.session!.user.id },
+        });
+        techScope = tech?.id ?? '__no_tech__'; // sentinel ensures empty result if not a tech
+      }
+
       const jobs = await ctx.db.job.findMany({
         where: {
           orgId: ctx.orgId!,
           ...(status && { status }),
-          ...(technicianId && { assignedTechnicianId: technicianId }),
+          ...(techScope !== undefined
+            ? { assignedTechnicianId: techScope }
+            : {
+                ...(technicianId && { assignedTechnicianId: technicianId }),
+                ...(unassignedOnly && { assignedTechnicianId: null }),
+              }),
           ...(category && { category }),
-          ...(unassignedOnly && { assignedTechnicianId: null }),
           ...(city && { property: { city: { contains: city } } }),
           ...(from || to
             ? {
@@ -178,8 +191,21 @@ export const jobRouter = router({
   byId: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
+      // Tech scope: only their own assigned jobs
+      let techScope: string | undefined;
+      if (ctx.session!.user.role === 'tech') {
+        const tech = await ctx.db.technician.findUnique({
+          where: { userId: ctx.session!.user.id },
+        });
+        techScope = tech?.id ?? '__no_tech__';
+      }
+
       const job = await ctx.db.job.findFirst({
-        where: { id: input.id, orgId: ctx.orgId! },
+        where: {
+          id: input.id,
+          orgId: ctx.orgId!,
+          ...(techScope && { assignedTechnicianId: techScope }),
+        },
         include: {
           customer: true,
           property: true,
@@ -209,7 +235,7 @@ export const jobRouter = router({
       };
     }),
 
-  create: protectedProcedure
+  create: requireRoles(['admin', 'dispatcher'])
     .input(createJobSchema)
     .mutation(async ({ ctx, input }) => {
       const jobNumber = await generateJobNumber(ctx.db, ctx.orgId!);
@@ -246,7 +272,7 @@ export const jobRouter = router({
       return job;
     }),
 
-  updateStatus: protectedProcedure
+  updateStatus: requireRoles(['admin', 'dispatcher', 'tech'])
     .input(
       z.object({
         jobId: z.string(),
@@ -261,6 +287,26 @@ export const jobRouter = router({
         where: { id: input.jobId, orgId: ctx.orgId! },
       });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      // Tech can only change status of their own assigned jobs, and only to in-flight statuses
+      if (ctx.session!.user.role === 'tech') {
+        const tech = await ctx.db.technician.findUnique({
+          where: { userId: ctx.session!.user.id },
+        });
+        if (!tech || existing.assignedTechnicianId !== tech.id) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Tech can only update their own assigned jobs',
+          });
+        }
+        const techAllowedStatuses = ['en_route', 'on_site', 'in_progress', 'completed'];
+        if (!techAllowedStatuses.includes(input.status)) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: `Tech cannot set status '${input.status}'`,
+          });
+        }
+      }
 
       const updates: Record<string, any> = { status: input.status };
       if (input.status === 'in_progress' && !existing.actualStart) {
@@ -290,7 +336,7 @@ export const jobRouter = router({
       return job;
     }),
 
-  assign: protectedProcedure
+  assign: requireRoles(['admin', 'dispatcher'])
     .input(
       z.object({
         jobId: z.string(),
@@ -356,7 +402,7 @@ export const jobRouter = router({
       });
     }),
 
-  addItems: protectedProcedure
+  addItems: requireRoles(['admin', 'dispatcher'])
     .input(
       z.object({
         jobId: z.string(),
@@ -389,11 +435,29 @@ export const jobRouter = router({
         })),
       });
 
-      // Update estimated revenue
+      // Update estimated revenue + denormalized labor/parts costs (used by jobFinancials)
       const total = input.items.reduce((sum, item) => sum + item.qty * item.unitPrice, 0);
+      const laborCost = input.items
+        .filter((i) => i.itemType === 'labor')
+        .reduce((s, i) => s + i.qty * i.unitPrice, 0);
+      const partsCost = input.items
+        .filter((i) => i.itemType === 'part')
+        .reduce((s, i) => s + i.qty * i.unitPrice, 0);
+
       await ctx.db.job.update({
         where: { id: input.jobId },
-        data: { estimatedRevenue: total },
+        data: { estimatedRevenue: total, laborCost, partsCost },
+      });
+
+      await ctx.db.auditLog.create({
+        data: {
+          orgId: ctx.orgId!,
+          userId: ctx.session!.user.id,
+          action: 'job.items_updated',
+          entityType: 'job',
+          entityId: input.jobId,
+          after: JSON.stringify({ itemCount: input.items.length, total, laborCost, partsCost }),
+        },
       });
 
       return { count: created.count, total };

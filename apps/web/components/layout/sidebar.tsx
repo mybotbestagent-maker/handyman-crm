@@ -20,29 +20,42 @@ import {
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 
+import { api } from '@/lib/trpc/client';
+
+type Role = 'admin' | 'dispatcher' | 'tech' | 'customer';
+
 type NavItem = {
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: number;
+  // Roles that can see this item; if undefined → visible to all authenticated users.
+  roles?: Role[];
 };
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Leads', href: '/leads', icon: PhoneIncoming },
-  { label: 'Customers', href: '/customers', icon: Users },
-  { label: 'Jobs', href: '/jobs', icon: Briefcase },
-  { label: 'Dispatch', href: '/dispatch', icon: Map },
-  { label: 'Schedule', href: '/schedule', icon: Calendar },
-  { label: 'Invoices', href: '/invoices', icon: FileText },
-  { label: 'Reports', href: '/reports', icon: BarChart3 },
-  { label: 'Settings', href: '/settings', icon: Settings },
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['admin', 'dispatcher'] },
+  { label: 'Leads',     href: '/leads',     icon: PhoneIncoming,    roles: ['admin', 'dispatcher'] },
+  { label: 'Customers', href: '/customers', icon: Users,            roles: ['admin', 'dispatcher'] },
+  { label: 'Jobs',      href: '/jobs',      icon: Briefcase /* visible to tech too — they only see assigned */ },
+  { label: 'Dispatch',  href: '/dispatch',  icon: Map,              roles: ['admin', 'dispatcher'] },
+  { label: 'Schedule',  href: '/schedule',  icon: Calendar,         roles: ['admin', 'dispatcher'] },
+  { label: 'Invoices',  href: '/invoices',  icon: FileText,         roles: ['admin', 'dispatcher'] },
+  { label: 'Reports',   href: '/reports',   icon: BarChart3,        roles: ['admin'] },
+  { label: 'Settings',  href: '/settings',  icon: Settings,         roles: ['admin'] },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Pull current user's role to filter nav items.
+  // staleTime=Infinity — role doesn't change mid-session; one fetch per page load
+  const { data: me } = api.auth.me.useQuery(undefined, { staleTime: Infinity });
+  const role = (me?.role ?? 'admin') as Role; // default 'admin' during loading prevents nav flicker for admin users
+
+  const visibleNavItems = navItems.filter((it) => !it.roles || it.roles.includes(role));
 
   // Close mobile drawer on route change
   useEffect(() => {
@@ -80,6 +93,9 @@ export function Sidebar() {
           pathname={pathname}
           collapsed={collapsed}
           onToggle={() => setCollapsed((c) => !c)}
+          items={visibleNavItems}
+          role={role}
+          userName={me?.fullName}
         />
       </aside>
 
@@ -97,7 +113,7 @@ export function Sidebar() {
         >
           <X className="h-5 w-5" />
         </button>
-        <SidebarInner pathname={pathname} collapsed={false} onToggle={() => {}} hideToggle />
+        <SidebarInner pathname={pathname} collapsed={false} onToggle={() => {}} hideToggle items={visibleNavItems} role={role} userName={me?.fullName} />
       </aside>
     </>
   );
@@ -108,30 +124,49 @@ function SidebarInner({
   collapsed,
   onToggle,
   hideToggle,
+  items,
+  role,
+  userName,
 }: {
   pathname: string;
   collapsed: boolean;
   onToggle: () => void;
   hideToggle?: boolean;
+  items: NavItem[];
+  role: Role;
+  userName?: string;
 }) {
   return (
     <>
-      {/* Logo */}
+      {/* Logo + role badge */}
       <div className="flex h-20 items-center px-6 border-b border-white/5">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--primary))] font-black text-white text-sm">
           GH
         </div>
         {!collapsed && (
-          <div className="ml-3 overflow-hidden">
+          <div className="ml-3 overflow-hidden flex-1 min-w-0">
             <p className="text-[15px] font-semibold leading-tight tracking-tight">Gold Hands</p>
-            <p className="text-[11px] text-white/50 mt-0.5 uppercase tracking-widest">CRM</p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className={cn(
+                'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded',
+                role === 'admin' && 'bg-[hsl(var(--primary))]/20 text-[hsl(var(--primary))]',
+                role === 'dispatcher' && 'bg-blue-500/20 text-blue-300',
+                role === 'tech' && 'bg-amber-500/20 text-amber-300',
+                role === 'customer' && 'bg-white/10 text-white/60',
+              )}>
+                {role}
+              </span>
+              {userName && (
+                <p className="text-[10px] text-white/50 truncate">{userName.split(' ')[0]}</p>
+              )}
+            </div>
           </div>
         )}
       </div>
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
-        {navItems.map((item) => {
+        {items.map((item) => {
           const isActive =
             item.href === '/dashboard'
               ? pathname === '/dashboard'

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { protectedProcedure, router } from '../trpc';
+import { protectedProcedure, router, requireRoles, writeAudit } from '../trpc';
 import { TRPCError } from '@trpc/server';
 
 export const leadRouter = router({
@@ -34,7 +34,7 @@ export const leadRouter = router({
       };
     }),
 
-  create: protectedProcedure
+  create: requireRoles(['admin', 'dispatcher'])
     .input(
       z.object({
         source: z.string(),
@@ -85,10 +85,17 @@ export const leadRouter = router({
         },
       });
 
+      await writeAudit(ctx, {
+        action: 'lead.created',
+        entityType: 'lead',
+        entityId: lead.id,
+        after: { source: lead.source, serviceType: lead.serviceType, customerId },
+      });
+
       return lead;
     }),
 
-  updateStatus: protectedProcedure
+  updateStatus: requireRoles(['admin', 'dispatcher'])
     .input(
       z.object({
         id: z.string(),
@@ -101,12 +108,22 @@ export const leadRouter = router({
       });
       if (!lead) throw new TRPCError({ code: 'NOT_FOUND' });
 
-      return ctx.db.lead.update({
+      const updated = await ctx.db.lead.update({
         where: { id: input.id },
         data: {
           status: input.status,
           ...(input.status === 'converted' && { convertedAt: new Date() }),
         },
       });
+
+      await writeAudit(ctx, {
+        action: 'lead.status_changed',
+        entityType: 'lead',
+        entityId: input.id,
+        before: { status: lead.status },
+        after: { status: input.status },
+      });
+
+      return updated;
     }),
 });

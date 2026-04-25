@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { protectedProcedure, router } from '../trpc';
+import { protectedProcedure, router, requireRoles } from '../trpc';
 import { TRPCError } from '@trpc/server';
 import { summarizeInvoices, isInvoiceOverdue } from '../lib/business-rules';
 
@@ -132,7 +132,7 @@ export const customerRouter = router({
       };
     }),
 
-  create: protectedProcedure
+  create: requireRoles(['admin', 'dispatcher'])
     .input(customerCreateSchema)
     .mutation(async ({ ctx, input }) => {
       // Normalize phone
@@ -177,7 +177,7 @@ export const customerRouter = router({
       return customer;
     }),
 
-  update: protectedProcedure
+  update: requireRoles(['admin', 'dispatcher'])
     .input(customerCreateSchema.partial().extend({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const { id, billingAddress, tags, ...rest } = input;
