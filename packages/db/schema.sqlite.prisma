@@ -177,6 +177,8 @@ model Job {
   customerId           String
   propertyId           String
   leadId               String?
+  sourceId             String?
+  serviceAreaId        String?
   jobType              String
   category             String
   description          String
@@ -186,10 +188,13 @@ model Job {
   dispatcherId         String?
   scheduledStart       DateTime?
   scheduledEnd         DateTime?
+  durationEstimateMinutes Int?
   actualStart          DateTime?
   actualEnd            DateTime?
   estimatedRevenue     Float?
   actualRevenue        Float?
+  laborCost            Float?
+  partsCost            Float?
   customerRating       Int?
   customerReview       String?
   internalNotes        String?

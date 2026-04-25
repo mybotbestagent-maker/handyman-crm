@@ -194,6 +194,10 @@ model Job {
   customerId           String
   propertyId           String
   leadId               String?
+  // Source tracking — broader than leadId (covers direct calls, walk-ins, repeat customers)
+  sourceId             String?  // Future: FK to lead_sources table; nullable until Phase 2
+  // Service area — for territory-based dispatch and reporting
+  serviceAreaId        String?  // Future: FK to service_areas; nullable until Phase 4
   jobType              String   // repair|install|maintenance|inspection
   category             String   // plumbing|electrical|carpentry|general
   description          String   @db.Text
@@ -203,10 +207,13 @@ model Job {
   dispatcherId         String?
   scheduledStart       DateTime?
   scheduledEnd         DateTime?
+  durationEstimateMinutes Int?  // Set by dispatcher / suggested by AI; separate from scheduled window
   actualStart          DateTime?
   actualEnd            DateTime?
   estimatedRevenue     Float?
   actualRevenue        Float?
+  laborCost            Float?   // Sum of job_items where itemType=labor (for profit calc)
+  partsCost            Float?   // Sum of job_items where itemType=part (for profit calc)
   customerRating       Int?
   customerReview       String?  @db.Text
   internalNotes        String?  @db.Text

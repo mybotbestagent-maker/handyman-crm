@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { protectedProcedure, router } from '../trpc';
 import { TRPCError } from '@trpc/server';
+import { summarizeInvoices, isInvoiceOverdue } from '../lib/business-rules';
 
 const addressSchema = z.object({
   line1: z.string(),
@@ -95,19 +96,12 @@ export const customerRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Customer not found' });
       }
 
-      // ── Auto-calculated stats ────────────────────────────────────────────
-      const activeInvoices = customer.invoices.filter((i) => i.status !== 'voided');
-      const totalInvoiced = activeInvoices.reduce((s, i) => s + Number(i.total), 0);
-      const totalSpent = activeInvoices.reduce((s, i) => s + Number(i.amountPaid), 0);
-      const outstandingBalance = activeInvoices.reduce(
-        (s, i) => s + Math.max(Number(i.total) - Number(i.amountPaid), 0),
-        0,
-      );
-
+      // Auto-calculated stats — formulas live in lib/business-rules.ts
+      const invoiceSummary = summarizeInvoices(customer.invoices);
       const completedJobs = customer.jobs.filter((j) =>
         ['completed', 'paid', 'invoiced'].includes(j.status),
       );
-      const avgTicket = completedJobs.length > 0 ? totalSpent / completedJobs.length : 0;
+      const avgTicket = completedJobs.length > 0 ? invoiceSummary.totalSpent / completedJobs.length : 0;
 
       const sortedByDate = [...customer.jobs]
         .filter((j) => j.scheduledStart)
@@ -123,19 +117,10 @@ export const customerRouter = router({
         categoryBreakdown[j.category] = (categoryBreakdown[j.category] ?? 0) + 1;
       });
 
-      const overdueCount = activeInvoices.filter(
-        (i) =>
-          i.status !== 'paid' &&
-          i.dueDate.getTime() < Date.now() &&
-          Number(i.total) - Number(i.amountPaid) > 0,
-      ).length;
-
       return {
         ...customer,
         stats: {
-          totalSpent,
-          totalInvoiced,
-          outstandingBalance,
+          ...invoiceSummary,
           avgTicket,
           totalJobs: customer.jobs.length,
           completedJobs: completedJobs.length,
@@ -143,8 +128,6 @@ export const customerRouter = router({
           lastService,
           daysSinceLast,
           categoryBreakdown,
-          overdueCount,
-          invoiceCount: activeInvoices.length,
         },
       };
     }),
