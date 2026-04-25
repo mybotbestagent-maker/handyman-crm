@@ -5,6 +5,7 @@ import { jobRouter } from './routers/job';
 import { leadRouter } from './routers/lead';
 import { technicianRouter } from './routers/technician';
 import { dashboardRouter } from './routers/dashboard';
+import { opportunityRouter } from './routers/opportunity';
 
 export const appRouter = router({
   auth: authRouter,
@@ -13,6 +14,8 @@ export const appRouter = router({
   lead: leadRouter,
   technician: technicianRouter,
   dashboard: dashboardRouter,
+  // T-CORE-OPPORTUNITY: shadow router. UI not migrated yet — old job/lead routers remain in use.
+  opportunity: opportunityRouter,
 });
 
 export type AppRouter = typeof appRouter;
