@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Topbar } from '@/components/layout/topbar';
 import { api } from '@/lib/trpc/client';
 import {
@@ -179,6 +180,172 @@ function LeadDetail({
   );
 }
 
+// ── Convert Lead Modal ─────────────────────────────────────────────────────────
+
+function ConvertLeadModal({
+  lead,
+  onClose,
+  onConverted,
+}: {
+  lead: any;
+  onClose: () => void;
+  onConverted: (customerId: string) => void;
+}) {
+  const router = useRouter();
+  const utils = api.useUtils();
+
+  const convertMutation = api.lead.convert.useMutation({
+    onSuccess: (data) => {
+      utils.lead.list.invalidate();
+      onConverted(data.customerId);
+    },
+  });
+
+  const [form, setForm] = useState({
+    customerName: lead.customer?.billingName ?? '',
+    customerPhone: lead.customer?.phone ?? '',
+    customerEmail: lead.customer?.email ?? '',
+    customerType: 'residential' as 'residential' | 'commercial',
+    addressLine1: '',
+    city: '',
+    state: '',
+    zip: lead.zip ?? '',
+    addAddress: false,
+  });
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm((p) => ({ ...p, [k]: e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value }));
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const serviceAddress = form.addAddress && form.addressLine1
+      ? { line1: form.addressLine1, city: form.city, state: form.state, zip: form.zip }
+      : undefined;
+
+    convertMutation.mutate({
+      leadId: lead.id,
+      customerName: form.customerName,
+      customerPhone: form.customerPhone,
+      customerEmail: form.customerEmail || undefined,
+      customerType: form.customerType,
+      existingCustomerId: lead.customer?.id,
+      serviceAddress,
+    });
+  }
+
+  const isDone = convertMutation.isSuccess;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-xl bg-background border shadow-xl overflow-y-auto max-h-[90vh]">
+        <div className="flex items-center justify-between border-b px-6 py-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <UserPlus className="h-5 w-5 text-primary" />
+            Convert Lead to Customer
+          </h2>
+          <button onClick={onClose} className="rounded-md p-1 hover:bg-accent transition-colors">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {isDone ? (
+          <div className="p-8 text-center space-y-4">
+            <div className="mx-auto w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
+              <CheckCircle className="h-7 w-7 text-green-600" />
+            </div>
+            <div>
+              <p className="font-semibold text-lg">Lead Converted!</p>
+              <p className="text-sm text-muted-foreground mt-1">Customer record created/linked.</p>
+            </div>
+            <div className="flex gap-2 justify-center pt-2">
+              <Button variant="outline" onClick={onClose}>Close</Button>
+              <Button onClick={() => {
+                onClose();
+                router.push(`/customers?id=${convertMutation.data?.customerId}`);
+              }}>
+                View Customer
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            {lead.customer && (
+              <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800">
+                Existing customer found: <strong>{lead.customer.billingName}</strong> ({formatPhone(lead.customer.phone)})
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 space-y-1.5">
+                <Label>Full Name *</Label>
+                <Input value={form.customerName} onChange={set('customerName')} placeholder="John Smith" required />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Phone *</Label>
+                <Input value={form.customerPhone} onChange={set('customerPhone')} placeholder="(305) 555-0100" required />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <Input value={form.customerEmail} onChange={set('customerEmail')} type="email" placeholder="john@example.com" />
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label>Customer Type</Label>
+                <select value={form.customerType} onChange={set('customerType')}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <option value="residential">Residential</option>
+                  <option value="commercial">Commercial</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <input type="checkbox" id="addAddr" checked={form.addAddress}
+                onChange={(e) => setForm((p) => ({ ...p, addAddress: e.target.checked }))}
+                className="h-4 w-4 rounded border-gray-300" />
+              <label htmlFor="addAddr" className="text-sm font-medium cursor-pointer">Add service address / property</label>
+            </div>
+
+            {form.addAddress && (
+              <div className="grid grid-cols-2 gap-3 pl-1 border-l-2 border-primary/30">
+                <div className="col-span-2 space-y-1.5">
+                  <Label>Street Address *</Label>
+                  <Input value={form.addressLine1} onChange={set('addressLine1')} placeholder="123 Main St" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>City *</Label>
+                  <Input value={form.city} onChange={set('city')} placeholder="Miami" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1.5">
+                    <Label>State</Label>
+                    <Input value={form.state} onChange={set('state')} placeholder="FL" maxLength={2} className="uppercase" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>ZIP</Label>
+                    <Input value={form.zip} onChange={set('zip')} placeholder="33101" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {convertMutation.error && (
+              <p className="text-sm text-destructive">{convertMutation.error.message}</p>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+              <Button type="submit" disabled={convertMutation.isPending}>
+                {convertMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Convert Lead
+              </Button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Create Lead Form ───────────────────────────────────────────────────────────
 
 function CreateLeadForm({
@@ -319,6 +486,7 @@ export default function LeadsPage() {
   const [activeStatus, setActiveStatus] = useState<LeadStatus | 'all'>('all');
   const [selectedLead, setSelectedLead] = useState<any | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [convertingLead, setConvertingLead] = useState<any | null>(null);
 
   const { data, isLoading } = api.lead.list.useQuery({
     status: activeStatus === 'all' ? undefined : activeStatus,
@@ -343,11 +511,20 @@ export default function LeadsPage() {
           lead={selectedLead}
           onBack={() => setSelectedLead(null)}
           onConvert={(id) => {
-            // TODO: navigate to create job form with leadId pre-filled
-            alert(`TODO: Convert lead ${id} to job — wire up in Week 4`);
+            setConvertingLead(selectedLead);
           }}
           onStatusChange={() => setSelectedLead(null)}
         />
+        {convertingLead && (
+          <ConvertLeadModal
+            lead={convertingLead}
+            onClose={() => setConvertingLead(null)}
+            onConverted={(customerId) => {
+              setConvertingLead(null);
+              setSelectedLead(null);
+            }}
+          />
+        )}
       </>
     );
   }

@@ -25,6 +25,8 @@ import {
   Clock,
   Receipt,
   Wrench,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatPhone } from '@/lib/utils';
 import { CustomerTypeBadge, InvoiceStatusBadge } from '@/components/shared/status-badges';
@@ -32,6 +34,187 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { JobStatusBadge } from '@/components/shared/status-badges';
+
+// ── Property Section (with add/edit/delete) ────────────────────────────────────
+
+function PropertySection({ customer, customerId }: { customer: any; customerId: string }) {
+  const utils = api.useUtils();
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingProp, setEditingProp] = useState<any | null>(null);
+
+  const addMutation = api.customer.addProperty.useMutation({
+    onSuccess: () => { utils.customer.byId.invalidate({ id: customerId }); setShowAdd(false); },
+  });
+  const updateMutation = api.customer.updateProperty.useMutation({
+    onSuccess: () => { utils.customer.byId.invalidate({ id: customerId }); setEditingProp(null); },
+  });
+  const deleteMutation = api.customer.deleteProperty.useMutation({
+    onSuccess: () => { utils.customer.byId.invalidate({ id: customerId }); },
+  });
+
+  const emptyForm = { addressLine1: '', addressLine2: '', city: '', state: '', zip: '', accessNotes: '', gateCode: '', petInfo: '', isPrimary: false };
+  const [form, setForm] = useState(emptyForm);
+
+  function openEdit(prop: any) {
+    setForm({
+      addressLine1: prop.addressLine1 ?? '',
+      addressLine2: prop.addressLine2 ?? '',
+      city: prop.city ?? '',
+      state: prop.state ?? '',
+      zip: prop.zip ?? '',
+      accessNotes: prop.accessNotes ?? '',
+      gateCode: prop.gateCode ?? '',
+      petInfo: prop.petInfo ?? '',
+      isPrimary: prop.isPrimary ?? false,
+    });
+    setEditingProp(prop);
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (editingProp) {
+      updateMutation.mutate({ id: editingProp.id, customerId, ...form });
+    } else {
+      addMutation.mutate({ customerId, ...form });
+    }
+  }
+
+  const isPending = addMutation.isPending || updateMutation.isPending;
+  const modalOpen = showAdd || !!editingProp;
+
+  return (
+    <div className="card-premium p-7">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <MapPin className="h-[18px] w-[18px] text-muted-foreground/60" />
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            Properties ({customer.properties?.length ?? 0})
+          </h3>
+        </div>
+        <button
+          onClick={() => { setForm(emptyForm); setEditingProp(null); setShowAdd(true); }}
+          className="flex items-center gap-1.5 text-[12px] font-medium text-primary hover:opacity-80 transition-opacity"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add Property
+        </button>
+      </div>
+
+      {customer.properties?.length === 0 && (
+        <p className="text-sm text-muted-foreground">No service addresses yet.</p>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {(customer.properties ?? []).map((prop: any) => (
+          <div key={prop.id} className="rounded-lg border border-border p-4 text-[13px] hover:border-[hsl(var(--primary))]/40 transition-colors group relative">
+            <div className="flex items-start gap-2">
+              <MapPin className="h-4 w-4 text-[hsl(var(--primary))] shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium">
+                  {prop.addressLine1}
+                  {prop.isPrimary && (
+                    <span className="ml-2 text-[10px] uppercase tracking-wider text-[hsl(var(--primary))] font-semibold">Primary</span>
+                  )}
+                </p>
+                <p className="text-muted-foreground text-[12px]">{prop.city}, {prop.state} {prop.zip}</p>
+                {prop.accessNotes && (
+                  <p className="mt-2 text-[11px] text-amber-700 bg-amber-50 px-2 py-1 rounded">Note: {prop.accessNotes}</p>
+                )}
+                {prop.gateCode && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">Gate: <span className="font-mono">{prop.gateCode}</span></p>
+                )}
+                {prop.petInfo && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">Pets: {prop.petInfo}</p>
+                )}
+              </div>
+            </div>
+            <div className="absolute top-3 right-3 hidden group-hover:flex items-center gap-1">
+              <button onClick={() => openEdit(prop)}
+                className="rounded p-1 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => { if (window.confirm('Delete this property?')) deleteMutation.mutate({ id: prop.id, customerId }); }}
+                disabled={deleteMutation.isPending}
+                className="rounded p-1 hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Add/Edit Property Modal */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-background border shadow-xl">
+            <div className="flex items-center justify-between border-b px-6 py-4">
+              <h2 className="text-lg font-semibold">{editingProp ? 'Edit Property' : 'Add Property'}</h2>
+              <button onClick={() => { setShowAdd(false); setEditingProp(null); }}
+                className="rounded-md p-1 hover:bg-accent transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="p-6 space-y-3">
+              <div className="space-y-1.5">
+                <Label>Street Address *</Label>
+                <Input value={form.addressLine1} onChange={(e) => setForm((p) => ({ ...p, addressLine1: e.target.value }))} placeholder="123 Main St" required />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Unit / Apt</Label>
+                <Input value={form.addressLine2} onChange={(e) => setForm((p) => ({ ...p, addressLine2: e.target.value }))} placeholder="Apt 4B" />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-1 space-y-1.5">
+                  <Label>City *</Label>
+                  <Input value={form.city} onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))} placeholder="Miami" required />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>State *</Label>
+                  <Input value={form.state} onChange={(e) => setForm((p) => ({ ...p, state: e.target.value }))} placeholder="FL" maxLength={2} className="uppercase" required />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>ZIP *</Label>
+                  <Input value={form.zip} onChange={(e) => setForm((p) => ({ ...p, zip: e.target.value }))} placeholder="33101" required />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Access Notes</Label>
+                <Input value={form.accessNotes} onChange={(e) => setForm((p) => ({ ...p, accessNotes: e.target.value }))} placeholder="Side gate, ring bell 3x" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <Label>Gate Code</Label>
+                  <Input value={form.gateCode} onChange={(e) => setForm((p) => ({ ...p, gateCode: e.target.value }))} placeholder="1234" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Pet Info</Label>
+                  <Input value={form.petInfo} onChange={(e) => setForm((p) => ({ ...p, petInfo: e.target.value }))} placeholder="2 dogs, friendly" />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <input type="checkbox" id="isPrimary" checked={form.isPrimary}
+                  onChange={(e) => setForm((p) => ({ ...p, isPrimary: e.target.checked }))}
+                  className="h-4 w-4 rounded border-gray-300" />
+                <label htmlFor="isPrimary" className="text-sm font-medium cursor-pointer">Set as primary address</label>
+              </div>
+              {(addMutation.error || updateMutation.error) && (
+                <p className="text-sm text-destructive">{addMutation.error?.message ?? updateMutation.error?.message}</p>
+              )}
+              <div className="flex justify-end gap-3 pt-2">
+                <Button type="button" variant="outline" onClick={() => { setShowAdd(false); setEditingProp(null); }}>Cancel</Button>
+                <Button type="submit" disabled={isPending}>
+                  {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {editingProp ? 'Save Changes' : 'Add Property'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Customer Detail Panel ──────────────────────────────────────────────────────
 
@@ -281,46 +464,7 @@ function CustomerDetail({
       </div>
 
       {/* Properties */}
-      {customer.properties && customer.properties.length > 0 && (
-        <div className="card-premium p-7">
-          <div className="flex items-center gap-2 mb-6">
-            <MapPin className="h-[18px] w-[18px] text-muted-foreground/60" />
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              Properties ({customer.properties.length})
-            </h3>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {customer.properties.map((prop: any) => (
-              <div
-                key={prop.id}
-                className="rounded-lg border border-border p-4 text-[13px] hover:border-[hsl(var(--primary))]/40 transition-colors"
-              >
-                <div className="flex items-start gap-2">
-                  <MapPin className="h-4 w-4 text-[hsl(var(--primary))] shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium">
-                      {prop.addressLine1}
-                      {prop.isPrimary && (
-                        <span className="ml-2 text-[10px] uppercase tracking-wider text-[hsl(var(--primary))] font-semibold">
-                          Primary
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-muted-foreground text-[12px]">
-                      {prop.city}, {prop.state} {prop.zip}
-                    </p>
-                    {prop.accessNotes && (
-                      <p className="mt-2 text-[11px] text-amber-700 bg-amber-50 px-2 py-1 rounded">
-                        Note: {prop.accessNotes}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <PropertySection customer={customer} customerId={customerId} />
 
       {/* Jobs history */}
       {customer.jobs && customer.jobs.length > 0 && (

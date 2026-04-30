@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { protectedProcedure, router, requireRoles } from '../trpc';
+import { protectedProcedure, router, requireRoles, writeAudit } from '../trpc';
 import { TRPCError } from '@trpc/server';
 import { summarizeInvoices, isInvoiceOverdue } from '../lib/business-rules';
 
@@ -10,6 +10,18 @@ const addressSchema = z.object({
   state: z.string().length(2),
   zip: z.string(),
   country: z.string().default('US'),
+});
+
+const propertySchema = z.object({
+  addressLine1: z.string().min(3),
+  addressLine2: z.string().optional(),
+  city: z.string().min(1),
+  state: z.string().length(2),
+  zip: z.string().min(5),
+  accessNotes: z.string().optional(),
+  gateCode: z.string().optional(),
+  petInfo: z.string().optional(),
+  isPrimary: z.boolean().default(false),
 });
 
 const customerCreateSchema = z.object({
@@ -209,5 +221,122 @@ export const customerRouter = router({
       });
 
       return customer;
+    }),
+
+  /**
+   * Phone-based dedupe check (used before creating new customers).
+   * Returns matching customer if found, null if clean.
+   */
+  checkDuplicate: requireRoles(['admin', 'dispatcher'])
+    .input(z.object({ phone: z.string(), email: z.string().email().optional() }))
+    .query(async ({ ctx, input }) => {
+      const normalized = input.phone.replace(/\D/g, '');
+      const last10 = normalized.slice(-10);
+
+      const byPhone = await ctx.db.customer.findFirst({
+        where: {
+          orgId: ctx.orgId!,
+          OR: [
+            { phone: { contains: last10 } },
+            { alternatePhone: { contains: last10 } },
+          ],
+        },
+        select: { id: true, billingName: true, phone: true, email: true },
+      });
+      if (byPhone) return { match: byPhone, matchedOn: 'phone' as const };
+
+      if (input.email) {
+        const byEmail = await ctx.db.customer.findFirst({
+          where: { orgId: ctx.orgId!, email: input.email },
+          select: { id: true, billingName: true, phone: true, email: true },
+        });
+        if (byEmail) return { match: byEmail, matchedOn: 'email' as const };
+      }
+
+      return { match: null, matchedOn: null };
+    }),
+
+  // ── Property CRUD ─────────────────────────────────────────────────────────
+
+  addProperty: requireRoles(['admin', 'dispatcher'])
+    .input(propertySchema.extend({ customerId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify customer belongs to org
+      const customer = await ctx.db.customer.findFirst({
+        where: { id: input.customerId, orgId: ctx.orgId! },
+      });
+      if (!customer) throw new TRPCError({ code: 'NOT_FOUND', message: 'Customer not found' });
+
+      const { customerId, isPrimary, ...propData } = input;
+
+      // If marking as primary, demote existing primary
+      if (isPrimary) {
+        await ctx.db.property.updateMany({
+          where: { customerId, orgId: ctx.orgId! },
+          data: { isPrimary: false },
+        });
+      }
+
+      const property = await ctx.db.property.create({
+        data: {
+          ...propData,
+          customerId,
+          orgId: ctx.orgId!,
+          isPrimary,
+        },
+      });
+
+      await writeAudit(ctx, {
+        action: 'property.created',
+        entityType: 'property',
+        entityId: property.id,
+        after: { customerId, addressLine1: property.addressLine1 },
+      });
+
+      return property;
+    }),
+
+  updateProperty: requireRoles(['admin', 'dispatcher'])
+    .input(propertySchema.partial().extend({ id: z.string(), customerId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { id, customerId, isPrimary, ...data } = input;
+
+      const existing = await ctx.db.property.findFirst({
+        where: { id, customerId, orgId: ctx.orgId! },
+      });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      if (isPrimary) {
+        await ctx.db.property.updateMany({
+          where: { customerId, orgId: ctx.orgId!, id: { not: id } },
+          data: { isPrimary: false },
+        });
+      }
+
+      return ctx.db.property.update({
+        where: { id },
+        data: { ...data, ...(isPrimary !== undefined && { isPrimary }) },
+      });
+    }),
+
+  deleteProperty: requireRoles(['admin', 'dispatcher'])
+    .input(z.object({ id: z.string(), customerId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.property.findFirst({
+        where: { id: input.id, customerId: input.customerId, orgId: ctx.orgId! },
+      });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      // Cannot delete if jobs linked
+      const jobCount = await ctx.db.job.count({ where: { propertyId: input.id } });
+      if (jobCount > 0) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Cannot delete: ${jobCount} job(s) linked to this property`,
+        });
+      }
+
+      await ctx.db.property.delete({ where: { id: input.id } });
+      return { deleted: true };
     }),
 });
