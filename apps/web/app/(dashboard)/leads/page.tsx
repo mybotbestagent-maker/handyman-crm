@@ -1,13 +1,22 @@
 'use client';
 
+/**
+ * Leads page — T-CORE-OPPORTUNITY Step 5 UI cutover.
+ *
+ * Reads from opportunityRouter instead of leadRouter.
+ * Shows opportunities in lead stages: new_lead | ai_responding | qualified |
+ * estimate_sent | estimate_approved.
+ *
+ * Old leadRouter is still registered and functional — will be removed after
+ * Step 6 (final cutover + drop legacy tables).
+ */
+
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Topbar } from '@/components/layout/topbar';
 import { api } from '@/lib/trpc/client';
 import {
   PhoneIncoming,
   Plus,
-  Search,
   X,
   ArrowLeft,
   Loader2,
@@ -15,61 +24,84 @@ import {
   MapPin,
   Zap,
   UserPlus,
-  CheckCircle,
-  AlertCircle,
   ChevronRight,
+  Bot,
+  FileText,
+  ThumbsUp,
 } from 'lucide-react';
 import { formatDate, formatPhone } from '@/lib/utils';
-import { LeadStatusBadge } from '@/components/shared/status-badges';
+import { OppStageBadge } from '@/components/shared/status-badges';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-type LeadStatus = 'new' | 'contacted' | 'qualified' | 'converted' | 'dead';
+// Stage groups shown on this (leads) page
+const LEAD_STAGES = [
+  'new_lead',
+  'ai_responding',
+  'qualified',
+  'estimate_sent',
+  'estimate_approved',
+] as const;
 
-const STATUS_TABS: { label: string; value: LeadStatus | 'all' }[] = [
+type LeadStageFilter = (typeof LEAD_STAGES)[number] | 'all';
+
+const STAGE_TABS: { label: string; value: LeadStageFilter }[] = [
   { label: 'All', value: 'all' },
-  { label: 'New', value: 'new' },
-  { label: 'Contacted', value: 'contacted' },
+  { label: 'New', value: 'new_lead' },
+  { label: 'AI Responding', value: 'ai_responding' },
   { label: 'Qualified', value: 'qualified' },
-  { label: 'Converted', value: 'converted' },
-  { label: 'Dead', value: 'dead' },
+  { label: 'Estimate Sent', value: 'estimate_sent' },
+  { label: 'Est. Approved', value: 'estimate_approved' },
 ];
 
-// ── Lead Detail Panel ──────────────────────────────────────────────────────────
+// ── Opportunity Detail Panel ───────────────────────────────────────────────────
 
-function LeadDetail({
-  lead,
+function OppDetail({
+  opp,
   onBack,
-  onConvert,
-  onStatusChange,
+  onTransition,
 }: {
-  lead: any;
+  opp: any;
   onBack: () => void;
-  onConvert: (leadId: string) => void;
-  onStatusChange: (leadId: string, status: LeadStatus) => void;
+  onTransition: () => void;
 }) {
   const utils = api.useUtils();
-  const updateStatusMutation = api.lead.updateStatus.useMutation({
+
+  const transitionMutation = api.opportunity.transitionStage.useMutation({
     onSuccess: () => {
-      utils.lead.list.invalidate();
-      onBack();
+      utils.opportunity.list.invalidate();
+      onTransition();
     },
   });
 
-  const transitions: { label: string; value: LeadStatus; variant: 'default' | 'outline' | 'destructive' }[] = [
-    { label: 'Mark Contacted', value: 'contacted', variant: 'outline' },
-    { label: 'Mark Qualified', value: 'qualified', variant: 'outline' },
-    { label: 'Mark Dead', value: 'dead', variant: 'destructive' as any },
-  ];
-
   const receivedAgo = (() => {
-    const diff = Date.now() - new Date(lead.receivedAt).getTime();
+    const diff = Date.now() - new Date(opp.createdAt).getTime();
     const h = Math.floor(diff / 3600000);
     if (h < 1) return 'just now';
     if (h < 24) return `${h}h ago`;
     return `${Math.floor(h / 24)}d ago`;
   })();
+
+  const nextStages: { label: string; toStage: string; variant: 'default' | 'outline' | 'destructive' }[] = [];
+  if (opp.stage === 'new_lead') {
+    nextStages.push({ label: 'Mark AI Responding', toStage: 'ai_responding', variant: 'outline' });
+    nextStages.push({ label: 'Mark Qualified', toStage: 'qualified', variant: 'outline' });
+    nextStages.push({ label: 'Mark Lost', toStage: 'lost', variant: 'destructive' });
+  } else if (opp.stage === 'ai_responding') {
+    nextStages.push({ label: 'Mark Qualified', toStage: 'qualified', variant: 'outline' });
+    nextStages.push({ label: 'Mark Lost', toStage: 'lost', variant: 'destructive' });
+  } else if (opp.stage === 'qualified') {
+    nextStages.push({ label: 'Send Estimate', toStage: 'estimate_sent', variant: 'outline' });
+    nextStages.push({ label: 'Create Job', toStage: 'job_created', variant: 'default' });
+    nextStages.push({ label: 'Mark Lost', toStage: 'lost', variant: 'destructive' });
+  } else if (opp.stage === 'estimate_sent') {
+    nextStages.push({ label: 'Estimate Approved', toStage: 'estimate_approved', variant: 'default' });
+    nextStages.push({ label: 'Mark Lost', toStage: 'lost', variant: 'destructive' });
+  } else if (opp.stage === 'estimate_approved') {
+    nextStages.push({ label: 'Create Job', toStage: 'job_created', variant: 'default' });
+    nextStages.push({ label: 'Mark Lost', toStage: 'lost', variant: 'destructive' });
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-2xl">
@@ -86,72 +118,71 @@ function LeadDetail({
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <LeadStatusBadge status={lead.status} />
+              <OppStageBadge stage={opp.stage} />
               <span className="text-xs text-muted-foreground capitalize">
-                via {lead.source.replace(/_/g, ' ')}
+                via {opp.sourceId?.replace(/_/g, ' ') ?? 'unknown'}
               </span>
             </div>
-            <h2 className="text-xl font-bold capitalize">{lead.serviceType} Request</h2>
+            <h2 className="text-xl font-bold capitalize">{opp.serviceCategory} Request</h2>
             <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Clock className="h-3.5 w-3.5" />
                 {receivedAgo}
               </span>
-              <span className="flex items-center gap-1">
-                <MapPin className="h-3.5 w-3.5" />
-                ZIP {lead.zip}
-              </span>
-            </div>
-          </div>
-          {/* Score */}
-          <div className="text-center">
-            <div
-              className={`flex h-14 w-14 items-center justify-center rounded-full text-lg font-bold ${
-                lead.score >= 80
-                  ? 'bg-green-100 text-green-700'
-                  : lead.score >= 50
-                  ? 'bg-amber-100 text-amber-700'
-                  : 'bg-red-100 text-red-700'
-              }`}
-            >
-              {lead.score}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">AI score</p>
-          </div>
-        </div>
-
-        {/* Description */}
-        <div className="mt-4 rounded-lg bg-muted/50 p-4">
-          <p className="text-sm">{lead.description}</p>
-        </div>
-      </div>
-
-      {/* Customer info */}
-      {lead.customer && (
-        <div className="rounded-xl border bg-card p-6 shadow-sm">
-          <h3 className="text-sm font-semibold mb-3">Linked Customer</h3>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold">
-              {lead.customer.billingName.charAt(0)}
-            </div>
-            <div>
-              <p className="font-medium">{lead.customer.billingName}</p>
-              {lead.customer.phone && (
-                <p className="text-sm text-muted-foreground">{formatPhone(lead.customer.phone)}</p>
+              {opp.zip && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5" />
+                  ZIP {opp.zip}
+                </span>
+              )}
+              {opp.city && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5" />
+                  {opp.city}, {opp.state}
+                </span>
               )}
             </div>
           </div>
         </div>
-      )}
+
+        {/* Description */}
+        {opp.description && (
+          <div className="mt-4 rounded-lg bg-muted/50 p-4">
+            <p className="text-sm">{opp.description}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Contact info */}
+      <div className="rounded-xl border bg-card p-6 shadow-sm">
+        <h3 className="text-sm font-semibold mb-3">Contact</h3>
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold">
+            {opp.customerName?.charAt(0) ?? '?'}
+          </div>
+          <div>
+            <p className="font-medium">{opp.customerName}</p>
+            {opp.customerPhone && (
+              <p className="text-sm text-muted-foreground">{formatPhone(opp.customerPhone)}</p>
+            )}
+            {opp.customerEmail && (
+              <p className="text-sm text-muted-foreground">{opp.customerEmail}</p>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Actions */}
       <div className="rounded-xl border bg-card p-6 shadow-sm space-y-3">
         <h3 className="text-sm font-semibold">Actions</h3>
 
-        {lead.status !== 'converted' && lead.status !== 'dead' && (
+        {(opp.stage === 'qualified' || opp.stage === 'estimate_approved') && (
           <Button
             className="w-full"
-            onClick={() => onConvert(lead.id)}
+            disabled={transitionMutation.isPending}
+            onClick={() =>
+              transitionMutation.mutate({ id: opp.id, toStage: 'job_created' })
+            }
           >
             <UserPlus className="h-4 w-4 mr-2" />
             Convert to Job
@@ -159,196 +190,38 @@ function LeadDetail({
         )}
 
         <div className="flex gap-2 flex-wrap">
-          {transitions
-            .filter((t) => t.value !== lead.status)
+          {nextStages
+            .filter((t) => t.toStage !== 'job_created')
             .map((t) => (
               <Button
-                key={t.value}
-                variant={t.variant as any}
+                key={t.toStage}
+                variant={t.variant}
                 size="sm"
-                disabled={updateStatusMutation.isPending}
+                disabled={transitionMutation.isPending}
                 onClick={() =>
-                  updateStatusMutation.mutate({ id: lead.id, status: t.value })
+                  transitionMutation.mutate({
+                    id: opp.id,
+                    toStage: t.toStage as any,
+                    ...(t.toStage === 'lost' && { lostReason: 'no_response' }),
+                  })
                 }
               >
                 {t.label}
               </Button>
             ))}
         </div>
-      </div>
-    </div>
-  );
-}
 
-// ── Convert Lead Modal ─────────────────────────────────────────────────────────
-
-function ConvertLeadModal({
-  lead,
-  onClose,
-  onConverted,
-}: {
-  lead: any;
-  onClose: () => void;
-  onConverted: (customerId: string) => void;
-}) {
-  const router = useRouter();
-  const utils = api.useUtils();
-
-  const convertMutation = api.lead.convert.useMutation({
-    onSuccess: (data) => {
-      utils.lead.list.invalidate();
-      onConverted(data.customerId);
-    },
-  });
-
-  const [form, setForm] = useState({
-    customerName: lead.customer?.billingName ?? '',
-    customerPhone: lead.customer?.phone ?? '',
-    customerEmail: lead.customer?.email ?? '',
-    customerType: 'residential' as 'residential' | 'commercial',
-    addressLine1: '',
-    city: '',
-    state: '',
-    zip: lead.zip ?? '',
-    addAddress: false,
-  });
-
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm((p) => ({ ...p, [k]: e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value }));
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const serviceAddress = form.addAddress && form.addressLine1
-      ? { line1: form.addressLine1, city: form.city, state: form.state, zip: form.zip }
-      : undefined;
-
-    convertMutation.mutate({
-      leadId: lead.id,
-      customerName: form.customerName,
-      customerPhone: form.customerPhone,
-      customerEmail: form.customerEmail || undefined,
-      customerType: form.customerType,
-      existingCustomerId: lead.customer?.id,
-      serviceAddress,
-    });
-  }
-
-  const isDone = convertMutation.isSuccess;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-xl bg-background border shadow-xl overflow-y-auto max-h-[90vh]">
-        <div className="flex items-center justify-between border-b px-6 py-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <UserPlus className="h-5 w-5 text-primary" />
-            Convert Lead to Customer
-          </h2>
-          <button onClick={onClose} className="rounded-md p-1 hover:bg-accent transition-colors">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {isDone ? (
-          <div className="p-8 text-center space-y-4">
-            <div className="mx-auto w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
-              <CheckCircle className="h-7 w-7 text-green-600" />
-            </div>
-            <div>
-              <p className="font-semibold text-lg">Lead Converted!</p>
-              <p className="text-sm text-muted-foreground mt-1">Customer record created/linked.</p>
-            </div>
-            <div className="flex gap-2 justify-center pt-2">
-              <Button variant="outline" onClick={onClose}>Close</Button>
-              <Button onClick={() => {
-                onClose();
-                router.push(`/customers?id=${convertMutation.data?.customerId}`);
-              }}>
-                View Customer
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
-            {lead.customer && (
-              <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800">
-                Existing customer found: <strong>{lead.customer.billingName}</strong> ({formatPhone(lead.customer.phone)})
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2 space-y-1.5">
-                <Label>Full Name *</Label>
-                <Input value={form.customerName} onChange={set('customerName')} placeholder="John Smith" required />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Phone *</Label>
-                <Input value={form.customerPhone} onChange={set('customerPhone')} placeholder="(305) 555-0100" required />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Email</Label>
-                <Input value={form.customerEmail} onChange={set('customerEmail')} type="email" placeholder="john@example.com" />
-              </div>
-              <div className="col-span-2 space-y-1.5">
-                <Label>Customer Type</Label>
-                <select value={form.customerType} onChange={set('customerType')}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <option value="residential">Residential</option>
-                  <option value="commercial">Commercial</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 pt-1">
-              <input type="checkbox" id="addAddr" checked={form.addAddress}
-                onChange={(e) => setForm((p) => ({ ...p, addAddress: e.target.checked }))}
-                className="h-4 w-4 rounded border-gray-300" />
-              <label htmlFor="addAddr" className="text-sm font-medium cursor-pointer">Add service address / property</label>
-            </div>
-
-            {form.addAddress && (
-              <div className="grid grid-cols-2 gap-3 pl-1 border-l-2 border-primary/30">
-                <div className="col-span-2 space-y-1.5">
-                  <Label>Street Address *</Label>
-                  <Input value={form.addressLine1} onChange={set('addressLine1')} placeholder="123 Main St" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>City *</Label>
-                  <Input value={form.city} onChange={set('city')} placeholder="Miami" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1.5">
-                    <Label>State</Label>
-                    <Input value={form.state} onChange={set('state')} placeholder="FL" maxLength={2} className="uppercase" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>ZIP</Label>
-                    <Input value={form.zip} onChange={set('zip')} placeholder="33101" />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {convertMutation.error && (
-              <p className="text-sm text-destructive">{convertMutation.error.message}</p>
-            )}
-
-            <div className="flex justify-end gap-3 pt-2">
-              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-              <Button type="submit" disabled={convertMutation.isPending}>
-                {convertMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Convert Lead
-              </Button>
-            </div>
-          </form>
+        {transitionMutation.error && (
+          <p className="text-sm text-destructive">{transitionMutation.error.message}</p>
         )}
       </div>
     </div>
   );
 }
 
-// ── Create Lead Form ───────────────────────────────────────────────────────────
+// ── Create Opportunity Form ────────────────────────────────────────────────────
 
-function CreateLeadForm({
+function CreateOppForm({
   onClose,
   onSaved,
 }: {
@@ -356,37 +229,42 @@ function CreateLeadForm({
   onSaved: () => void;
 }) {
   const utils = api.useUtils();
-  const createMutation = api.lead.create.useMutation({
+  const createMutation = api.opportunity.create.useMutation({
     onSuccess: () => {
-      utils.lead.list.invalidate();
+      utils.opportunity.list.invalidate();
       onSaved();
     },
   });
 
   const [form, setForm] = useState({
-    source: 'web_form',
-    serviceType: '',
+    sourceId: 'web_form',
+    serviceCategory: '',
     description: '',
     zip: '',
     customerName: '',
     customerPhone: '',
     customerEmail: '',
+    city: '',
+    state: '',
   });
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm((prev) => ({ ...prev, [k]: e.target.value }));
+  const set =
+    (k: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setForm((prev) => ({ ...prev, [k]: e.target.value }));
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     createMutation.mutate({
-      source: form.source,
-      sourceMeta: {},
-      serviceType: form.serviceType,
-      description: form.description,
-      zip: form.zip,
-      customerName: form.customerName || undefined,
+      sourceId: form.sourceId,
+      serviceCategory: form.serviceCategory,
+      description: form.description || undefined,
+      zip: form.zip || undefined,
+      customerName: form.customerName,
       customerPhone: form.customerPhone || undefined,
       customerEmail: form.customerEmail || undefined,
+      city: form.city || undefined,
+      state: form.state || undefined,
     });
   }
 
@@ -405,8 +283,8 @@ function CreateLeadForm({
             <div className="space-y-1.5">
               <Label>Source *</Label>
               <select
-                value={form.source}
-                onChange={set('source')}
+                value={form.sourceId}
+                onChange={set('sourceId')}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <option value="google_lsa">Google LSA</option>
@@ -418,10 +296,10 @@ function CreateLeadForm({
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label>Service Type *</Label>
+              <Label>Service Category *</Label>
               <select
-                value={form.serviceType}
-                onChange={set('serviceType')}
+                value={form.serviceCategory}
+                onChange={set('serviceCategory')}
                 required
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
@@ -438,28 +316,47 @@ function CreateLeadForm({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Description *</Label>
+            <Label>Description</Label>
             <textarea
               value={form.description}
               onChange={set('description')}
-              required
               rows={3}
               placeholder="Describe the service needed..."
               className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label>ZIP Code *</Label>
-            <Input value={form.zip} onChange={set('zip')} placeholder="33131" required />
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label>ZIP</Label>
+              <Input value={form.zip} onChange={set('zip')} placeholder="33131" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>City</Label>
+              <Input value={form.city} onChange={set('city')} placeholder="Miami" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>State</Label>
+              <Input value={form.state} onChange={set('state')} placeholder="FL" />
+            </div>
           </div>
 
           <div className="rounded-lg border p-4 space-y-3">
-            <p className="text-sm font-medium">Customer Info (optional)</p>
-            <Input value={form.customerName} onChange={set('customerName')} placeholder="Customer name" />
+            <p className="text-sm font-medium">Customer Info *</p>
+            <Input
+              value={form.customerName}
+              onChange={set('customerName')}
+              placeholder="Customer name"
+              required
+            />
             <div className="grid grid-cols-2 gap-3">
               <Input value={form.customerPhone} onChange={set('customerPhone')} placeholder="Phone" />
-              <Input value={form.customerEmail} onChange={set('customerEmail')} type="email" placeholder="Email" />
+              <Input
+                value={form.customerEmail}
+                onChange={set('customerEmail')}
+                type="email"
+                placeholder="Email"
+              />
             </div>
           </div>
 
@@ -468,7 +365,9 @@ function CreateLeadForm({
           )}
 
           <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
             <Button type="submit" disabled={createMutation.isPending}>
               {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create Lead
@@ -483,48 +382,39 @@ function CreateLeadForm({
 // ── Main Leads Page ────────────────────────────────────────────────────────────
 
 export default function LeadsPage() {
-  const [activeStatus, setActiveStatus] = useState<LeadStatus | 'all'>('all');
-  const [selectedLead, setSelectedLead] = useState<any | null>(null);
+  const [activeStage, setActiveStage] = useState<LeadStageFilter>('all');
+  const [selectedOpp, setSelectedOpp] = useState<any | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [convertingLead, setConvertingLead] = useState<any | null>(null);
 
-  const { data, isLoading } = api.lead.list.useQuery({
-    status: activeStatus === 'all' ? undefined : activeStatus,
+  // Filtered list
+  const { data, isLoading } = api.opportunity.list.useQuery({
+    stages: activeStage === 'all' ? [...LEAD_STAGES] : [activeStage],
     limit: 100,
   });
 
-  const leads = data?.items ?? [];
+  // All lead-stage opps for counts
+  const { data: allData } = api.opportunity.list.useQuery({
+    stages: [...LEAD_STAGES],
+    limit: 100,
+  });
 
-  // Count per status for badges
-  const { data: allData } = api.lead.list.useQuery({ limit: 100 });
-  const allLeads = allData?.items ?? [];
-  const countByStatus = allLeads.reduce((acc: Record<string, number>, l: any) => {
-    acc[l.status] = (acc[l.status] ?? 0) + 1;
+  const opps = data?.items ?? [];
+  const allOpps = allData?.items ?? [];
+
+  const countByStage = allOpps.reduce((acc: Record<string, number>, o: any) => {
+    acc[o.stage] = (acc[o.stage] ?? 0) + 1;
     return acc;
   }, {});
 
-  if (selectedLead) {
+  if (selectedOpp) {
     return (
       <>
         <Topbar title="Leads" />
-        <LeadDetail
-          lead={selectedLead}
-          onBack={() => setSelectedLead(null)}
-          onConvert={(id) => {
-            setConvertingLead(selectedLead);
-          }}
-          onStatusChange={() => setSelectedLead(null)}
+        <OppDetail
+          opp={selectedOpp}
+          onBack={() => setSelectedOpp(null)}
+          onTransition={() => setSelectedOpp(null)}
         />
-        {convertingLead && (
-          <ConvertLeadModal
-            lead={convertingLead}
-            onClose={() => setConvertingLead(null)}
-            onConverted={(customerId) => {
-              setConvertingLead(null);
-              setSelectedLead(null);
-            }}
-          />
-        )}
       </>
     );
   }
@@ -536,17 +426,18 @@ export default function LeadsPage() {
       <div className="p-6 space-y-5">
         {/* Toolbar */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {/* Status tabs */}
+          {/* Stage tabs */}
           <div className="flex flex-wrap gap-1">
-            {STATUS_TABS.map((tab) => {
-              const count = tab.value === 'all'
-                ? allLeads.length
-                : countByStatus[tab.value] ?? 0;
-              const isActive = tab.value === activeStatus;
+            {STAGE_TABS.map((tab) => {
+              const count =
+                tab.value === 'all'
+                  ? allOpps.length
+                  : countByStage[tab.value] ?? 0;
+              const isActive = tab.value === activeStage;
               return (
                 <button
                   key={tab.value}
-                  onClick={() => setActiveStatus(tab.value)}
+                  onClick={() => setActiveStage(tab.value)}
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                     isActive
                       ? 'bg-primary text-primary-foreground'
@@ -577,10 +468,36 @@ export default function LeadsPage() {
         {/* Stats cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: 'New', value: countByStatus['new'] ?? 0, icon: PhoneIncoming, color: 'text-blue-600', bg: 'bg-blue-50' },
-            { label: 'Contacted', value: countByStatus['contacted'] ?? 0, icon: Clock, color: 'text-yellow-600', bg: 'bg-yellow-50' },
-            { label: 'Qualified', value: countByStatus['qualified'] ?? 0, icon: Zap, color: 'text-purple-600', bg: 'bg-purple-50' },
-            { label: 'Converted', value: countByStatus['converted'] ?? 0, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
+            {
+              label: 'New',
+              value: countByStage['new_lead'] ?? 0,
+              icon: PhoneIncoming,
+              color: 'text-blue-600',
+              bg: 'bg-blue-50',
+            },
+            {
+              label: 'AI Responding',
+              value: countByStage['ai_responding'] ?? 0,
+              icon: Bot,
+              color: 'text-sky-600',
+              bg: 'bg-sky-50',
+            },
+            {
+              label: 'Qualified',
+              value: countByStage['qualified'] ?? 0,
+              icon: Zap,
+              color: 'text-purple-600',
+              bg: 'bg-purple-50',
+            },
+            {
+              label: 'Estimates',
+              value:
+                (countByStage['estimate_sent'] ?? 0) +
+                (countByStage['estimate_approved'] ?? 0),
+              icon: FileText,
+              color: 'text-cyan-600',
+              bg: 'bg-cyan-50',
+            },
           ].map((s) => (
             <div key={s.label} className="rounded-xl border bg-card p-4 shadow-sm">
               <div className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${s.bg} mb-2`}>
@@ -592,17 +509,17 @@ export default function LeadsPage() {
           ))}
         </div>
 
-        {/* Leads list */}
+        {/* Opps list */}
         <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
           {isLoading ? (
             <div className="flex items-center justify-center p-16">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
-          ) : leads.length === 0 ? (
+          ) : opps.length === 0 ? (
             <div className="p-16 text-center text-muted-foreground">
               <PhoneIncoming className="mx-auto h-10 w-10 mb-3 opacity-30" />
               <p className="font-medium">
-                {activeStatus === 'all' ? 'No leads yet' : `No ${activeStatus} leads`}
+                {activeStage === 'all' ? 'No leads yet' : `No leads in this stage`}
               </p>
               <Button onClick={() => setShowCreate(true)} size="sm" className="mt-4">
                 <Plus className="h-4 w-4 mr-1.5" />
@@ -611,9 +528,9 @@ export default function LeadsPage() {
             </div>
           ) : (
             <div className="divide-y">
-              {leads.map((lead: any) => {
+              {opps.map((opp: any) => {
                 const receivedAgo = (() => {
-                  const diff = Date.now() - new Date(lead.receivedAt).getTime();
+                  const diff = Date.now() - new Date(opp.createdAt).getTime();
                   const h = Math.floor(diff / 3600000);
                   if (h < 1) return 'just now';
                   if (h < 24) return `${h}h ago`;
@@ -622,47 +539,43 @@ export default function LeadsPage() {
 
                 return (
                   <div
-                    key={lead.id}
+                    key={opp.id}
                     className="flex items-start justify-between px-6 py-4 hover:bg-muted/30 transition-colors cursor-pointer"
-                    onClick={() => setSelectedLead(lead)}
+                    onClick={() => setSelectedOpp(opp)}
                   >
                     <div className="flex items-start gap-4 flex-1 min-w-0">
-                      {/* Score */}
-                      <div
-                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                          lead.score >= 80
-                            ? 'bg-green-100 text-green-700'
-                            : lead.score >= 50
-                            ? 'bg-amber-100 text-amber-700'
-                            : 'bg-gray-100 text-gray-500'
-                        }`}
-                      >
-                        {lead.score}
+                      {/* Avatar initials */}
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-bold">
+                        {opp.customerName?.charAt(0) ?? '?'}
                       </div>
 
                       {/* Content */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="font-medium capitalize">{lead.serviceType}</span>
-                          <span className="text-muted-foreground text-xs">ZIP {lead.zip}</span>
+                          <span className="font-medium capitalize">{opp.serviceCategory}</span>
+                          {opp.zip && (
+                            <span className="text-muted-foreground text-xs">ZIP {opp.zip}</span>
+                          )}
+                          {opp.city && (
+                            <span className="text-muted-foreground text-xs">{opp.city}, {opp.state}</span>
+                          )}
                           <span className="text-muted-foreground text-xs capitalize">
-                            · {lead.source.replace(/_/g, ' ')}
+                            · {opp.sourceId?.replace(/_/g, ' ') ?? 'unknown'}
                           </span>
                         </div>
-                        <p className="text-sm text-muted-foreground line-clamp-2">
-                          {lead.description}
-                        </p>
-                        {lead.customer && (
-                          <p className="mt-1 text-xs text-primary font-medium">
-                            {lead.customer.billingName}
+                        <p className="text-sm font-medium text-foreground">{opp.customerName}</p>
+                        {opp.description && (
+                          <p className="text-sm text-muted-foreground line-clamp-1 mt-0.5">
+                            {opp.description}
                           </p>
                         )}
                       </div>
                     </div>
 
                     <div className="ml-4 flex flex-col items-end gap-2 shrink-0">
-                      <LeadStatusBadge status={lead.status} />
+                      <OppStageBadge stage={opp.stage} />
                       <span className="text-xs text-muted-foreground">{receivedAgo}</span>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground/50" />
                     </div>
                   </div>
                 );
@@ -673,7 +586,7 @@ export default function LeadsPage() {
       </div>
 
       {showCreate && (
-        <CreateLeadForm
+        <CreateOppForm
           onClose={() => setShowCreate(false)}
           onSaved={() => setShowCreate(false)}
         />

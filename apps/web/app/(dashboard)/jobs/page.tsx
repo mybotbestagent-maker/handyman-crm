@@ -1,5 +1,18 @@
 'use client';
 
+/**
+ * Jobs page — T-CORE-OPPORTUNITY Step 5 UI cutover.
+ *
+ * Reads from opportunityRouter instead of jobRouter.
+ * Shows opportunities in job stages: job_created | scheduled | on_the_way |
+ * in_progress | done | invoiced | paid.
+ *
+ * The old jobRouter remains registered and functional. CreateJobForm still
+ * calls job.create until the full write-side cutover (Step 6 scope).
+ *
+ * Detail view uses opportunity.byId for rich financials.
+ */
+
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Topbar } from '@/components/layout/topbar';
@@ -26,66 +39,69 @@ import {
   Receipt,
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatPhone } from '@/lib/utils';
-import { JobStatusBadge, PriorityBadge } from '@/components/shared/status-badges';
+import { OppStageBadge, PriorityBadge } from '@/components/shared/status-badges';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-type JobStatus =
-  | 'new' | 'scheduled' | 'dispatched' | 'en_route'
-  | 'on_site' | 'in_progress' | 'completed' | 'invoiced'
-  | 'paid' | 'closed' | 'canceled';
+// Stages shown on this (jobs) page
+const JOB_STAGES = [
+  'job_created',
+  'scheduled',
+  'on_the_way',
+  'in_progress',
+  'done',
+  'invoiced',
+  'paid',
+] as const;
 
-const STATUS_TABS: { label: string; value: JobStatus | 'all'; }[] = [
+type JobStageFilter = (typeof JOB_STAGES)[number] | 'all';
+
+const STAGE_TABS: { label: string; value: JobStageFilter }[] = [
   { label: 'All', value: 'all' },
-  { label: 'New', value: 'new' },
+  { label: 'New', value: 'job_created' },
   { label: 'Scheduled', value: 'scheduled' },
-  { label: 'Dispatched', value: 'dispatched' },
-  { label: 'On Site', value: 'on_site' },
+  { label: 'On the Way', value: 'on_the_way' },
   { label: 'In Progress', value: 'in_progress' },
-  { label: 'Completed', value: 'completed' },
+  { label: 'Done', value: 'done' },
   { label: 'Invoiced', value: 'invoiced' },
 ];
 
-const STATUS_TRANSITIONS: Partial<Record<JobStatus, JobStatus[]>> = {
-  new:         ['scheduled', 'canceled'],
-  scheduled:   ['dispatched', 'canceled'],
-  dispatched:  ['en_route', 'canceled'],
-  en_route:    ['on_site'],
-  on_site:     ['in_progress'],
-  in_progress: ['completed'],
-  completed:   ['invoiced'],
-  invoiced:    ['paid'],
-  paid:        ['closed'],
+// Which stage transitions are available per stage (subset of STAGE_TRANSITIONS from opportunity-stages.ts)
+const STAGE_NEXT: Record<string, string[]> = {
+  job_created:  ['scheduled', 'lost'],
+  scheduled:    ['on_the_way', 'in_progress', 'lost'],
+  on_the_way:   ['in_progress', 'lost'],
+  in_progress:  ['done', 'lost'],
+  done:         ['invoiced', 'lost'],
+  invoiced:     ['paid', 'lost'],
+  paid:         [],
 };
 
-const STATUS_LABELS: Partial<Record<JobStatus, string>> = {
-  scheduled:   'Mark Scheduled',
-  dispatched:  'Dispatch Tech',
-  en_route:    'Tech En Route',
-  on_site:     'On Site',
-  in_progress: 'Start Work',
-  completed:   'Mark Complete',
-  invoiced:    'Invoice Sent',
-  paid:        'Mark Paid',
-  closed:      'Close Job',
-  canceled:    'Cancel',
+const STAGE_BUTTON_LABELS: Record<string, string> = {
+  scheduled:  'Mark Scheduled',
+  on_the_way: 'Tech En Route',
+  in_progress:'Start Work',
+  done:       'Mark Done',
+  invoiced:   'Invoice Sent',
+  paid:       'Mark Paid',
+  lost:       'Cancel',
 };
 
 const CATEGORIES = ['general', 'plumbing', 'electrical', 'carpentry', 'painting', 'hvac'];
 
-// ── Schedule column (Today / Tomorrow) ──────────────────────────────────────
+// ── Schedule column ──────────────────────────────────────────────────────────
 
 function ScheduleColumn({
   label,
   icon: Icon,
-  jobs,
+  opps,
   onSelect,
   highlight,
 }: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  jobs: any[];
+  opps: any[];
   onSelect: (id: string) => void;
   highlight?: boolean;
 }) {
@@ -96,31 +112,31 @@ function ScheduleColumn({
           <Icon className={`h-[16px] w-[16px] ${highlight ? 'text-[hsl(var(--primary))]' : 'text-muted-foreground/60'}`} />
           <h3 className="text-[12px] font-bold uppercase tracking-[0.1em]">{label}</h3>
         </div>
-        <span className="text-[11px] font-semibold text-muted-foreground">{jobs.length}</span>
+        <span className="text-[11px] font-semibold text-muted-foreground">{opps.length}</span>
       </div>
-      {jobs.length === 0 ? (
+      {opps.length === 0 ? (
         <div className="p-8 text-center text-[12px] text-muted-foreground">
           Nothing scheduled
         </div>
       ) : (
         <div className="divide-y divide-border max-h-[300px] overflow-y-auto">
-          {jobs.slice(0, 6).map((job: any) => {
-            const t = job.scheduledStart
-              ? new Date(job.scheduledStart).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+          {opps.slice(0, 6).map((opp: any) => {
+            const t = opp.scheduledStart
+              ? new Date(opp.scheduledStart).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
               : '—';
             return (
               <button
-                key={job.id}
-                onClick={() => onSelect(job.id)}
+                key={opp.id}
+                onClick={() => onSelect(opp.id)}
                 className="w-full text-left px-5 py-3 hover:bg-muted/30 transition-colors"
               >
                 <div className="flex items-center justify-between gap-2 mb-0.5">
-                  <span className="font-mono text-[11px] font-bold text-[hsl(var(--primary))]">{job.jobNumber}</span>
+                  <OppStageBadge stage={opp.stage} />
                   <span className="text-[11px] text-muted-foreground font-mono">{t}</span>
                 </div>
-                <p className="text-[13px] font-medium truncate">{job.customer?.billingName}</p>
+                <p className="text-[13px] font-medium truncate">{opp.customerName}</p>
                 <p className="text-[11px] text-muted-foreground capitalize truncate">
-                  {job.category} · {job.technician?.user?.fullName ?? 'Unassigned'}
+                  {opp.serviceCategory} · {opp.technician?.user?.fullName ?? 'Unassigned'}
                 </p>
               </button>
             );
@@ -131,16 +147,16 @@ function ScheduleColumn({
   );
 }
 
-// ── Job Detail ───────────────────────────────────────────────────────────────
+// ── Opportunity Detail ───────────────────────────────────────────────────────
 
-function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
+function OppDetail({ oppId, onBack }: { oppId: string; onBack: () => void }) {
   const utils = api.useUtils();
-  const { data: job, isLoading } = api.job.byId.useQuery({ id: jobId });
+  const { data: opp, isLoading } = api.opportunity.byId.useQuery({ id: oppId });
 
-  const updateStatus = api.job.updateStatus.useMutation({
+  const transitionStage = api.opportunity.transitionStage.useMutation({
     onSuccess: () => {
-      utils.job.byId.invalidate({ id: jobId });
-      utils.job.list.invalidate();
+      utils.opportunity.byId.invalidate({ id: oppId });
+      utils.opportunity.list.invalidate();
     },
   });
 
@@ -152,23 +168,18 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
     );
   }
 
-  if (!job) return null;
+  if (!opp) return null;
 
-  const transitions = STATUS_TRANSITIONS[job.status as JobStatus] ?? [];
-  const smart = (job as any).smart ?? {};
-  const address = job.property
-    ? `${job.property.addressLine1}, ${job.property.city}, ${job.property.state} ${job.property.zip ?? ''}`
+  const transitions = STAGE_NEXT[opp.stage] ?? [];
+  const smart = (opp as any).smart ?? {};
+  const address = opp.property
+    ? `${opp.property.addressLine1}, ${opp.property.city}, ${opp.property.state}`
+    : opp.addressLine
+    ? `${opp.addressLine}, ${opp.city ?? ''}, ${opp.state ?? ''}`
     : '—';
 
-  const profitColor = smart.profit > 0 ? 'text-green-600' : smart.profit < 0 ? 'text-red-600' : 'text-muted-foreground';
-  const varianceColor =
-    smart.scheduleVarianceMinutes == null
-      ? 'text-muted-foreground'
-      : smart.scheduleVarianceMinutes <= 0
-      ? 'text-green-600'
-      : smart.scheduleVarianceMinutes < 30
-      ? 'text-amber-600'
-      : 'text-red-600';
+  const profitColor =
+    smart.profit > 0 ? 'text-green-600' : smart.profit < 0 ? 'text-red-600' : 'text-muted-foreground';
 
   return (
     <div className="px-4 md:px-10 py-8 md:py-10 max-w-[1400px] mx-auto space-y-8 mt-12 md:mt-0">
@@ -184,32 +195,41 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 border-b border-border pb-6 md:pb-8">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-3 flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-[hsl(var(--primary))]">{job.jobNumber}</span>
+            <span className="capitalize">{opp.serviceCategory}</span>
             <span>·</span>
-            <span className="capitalize">{job.category}</span>
-            <span>·</span>
-            <span className="capitalize">{job.jobType}</span>
-            <JobStatusBadge status={job.status} />
-            <PriorityBadge priority={job.priority} />
+            <span className="capitalize">via {opp.sourceId?.replace(/_/g, ' ') ?? 'unknown'}</span>
+            <OppStageBadge stage={opp.stage} />
+            <PriorityBadge priority={opp.priority} />
           </p>
-          <h1 className="hero-headline !text-[34px] md:!text-[44px] leading-[1.1]">{job.description}</h1>
+          <h1 className="hero-headline !text-[34px] md:!text-[44px] leading-[1.1]">
+            {opp.description ?? opp.serviceCategory}
+          </h1>
         </div>
 
         {transitions.length > 0 && (
           <div className="flex flex-wrap gap-2 self-start md:self-auto">
-            {transitions.map((nextStatus) => {
-              const isPrimary = ['scheduled', 'in_progress', 'completed', 'paid'].includes(nextStatus);
+            {transitions.map((nextStage) => {
+              const isLost = nextStage === 'lost';
+              const isPrimary = ['scheduled', 'in_progress', 'done', 'paid'].includes(nextStage);
               return (
                 <Button
-                  key={nextStatus}
+                  key={nextStage}
                   size="sm"
-                  variant={nextStatus === 'canceled' ? 'destructive' : isPrimary ? 'default' : 'outline'}
-                  className={isPrimary && nextStatus !== 'canceled' ? 'btn-orange !py-2 !px-4 !text-[13px]' : ''}
-                  disabled={updateStatus.isPending}
-                  onClick={() => updateStatus.mutate({ jobId: job.id, status: nextStatus })}
+                  variant={isLost ? 'destructive' : isPrimary ? 'default' : 'outline'}
+                  className={isPrimary && !isLost ? 'btn-orange !py-2 !px-4 !text-[13px]' : ''}
+                  disabled={transitionStage.isPending}
+                  onClick={() =>
+                    transitionStage.mutate({
+                      id: opp.id,
+                      toStage: nextStage as any,
+                      ...(nextStage === 'lost' && { lostReason: 'canceled' }),
+                    })
+                  }
                 >
-                  {updateStatus.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                  {STATUS_LABELS[nextStatus] ?? nextStatus}
+                  {transitionStage.isPending && (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  )}
+                  {STAGE_BUTTON_LABELS[nextStage] ?? nextStage.replace(/_/g, ' ')}
                 </Button>
               );
             })}
@@ -217,7 +237,7 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
         )}
       </div>
 
-      {/* Smart stat cards — auto-calculated from business-rules.ts */}
+      {/* Smart stat cards */}
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <div className="card-premium p-7">
           <div className="flex items-center justify-between mb-6">
@@ -228,7 +248,7 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
             {smart.revenue > 0 ? formatCurrency(smart.revenue) : '—'}
           </p>
           <p className="mt-2 text-[13px] text-muted-foreground">
-            {job.actualRevenue ? 'Actual' : job.estimatedRevenue ? 'Estimated' : 'Not set'}
+            {opp.finalAmount ? 'Actual' : opp.estimateAmount ? 'Estimated' : 'Not set'}
           </p>
         </div>
 
@@ -247,7 +267,9 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
             {smart.revenue > 0 ? formatCurrency(smart.profit) : '—'}
           </p>
           <p className="mt-2 text-[13px] text-muted-foreground">
-            {smart.revenue > 0 ? `Margin ${(smart.margin * 100).toFixed(0)}% · Labor ${formatCurrency(smart.labor)}` : 'Add line items'}
+            {smart.revenue > 0
+              ? `Margin ${(smart.margin * 100).toFixed(0)}% · Labor ${formatCurrency(smart.labor)}`
+              : 'Add line items'}
           </p>
         </div>
 
@@ -262,7 +284,7 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
               : '—'}
           </p>
           <p className="mt-2 text-[13px] text-muted-foreground">
-            {job.actualStart ? `Started ${formatDate(job.actualStart)}` : 'Not started'}
+            {opp.actualStart ? `Started ${formatDate(opp.actualStart)}` : 'Not started'}
           </p>
         </div>
 
@@ -271,24 +293,23 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Schedule</p>
             <Clock className="h-[18px] w-[18px] text-muted-foreground/60" />
           </div>
-          <p className={`stat-display ${varianceColor}`}>
-            {smart.scheduleVarianceMinutes == null
-              ? '—'
-              : smart.scheduleVarianceMinutes === 0
-              ? 'On time'
-              : smart.scheduleVarianceMinutes < 0
-              ? `${Math.abs(smart.scheduleVarianceMinutes)}m early`
-              : `${smart.scheduleVarianceMinutes}m late`}
+          <p className="stat-display">
+            {opp.scheduledStart ? (
+              new Date(opp.scheduledStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            ) : '—'}
           </p>
           <p className="mt-2 text-[13px] text-muted-foreground">
-            {job.scheduledStart
-              ? `${formatDate(job.scheduledStart)} ${new Date(job.scheduledStart).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+            {opp.scheduledStart
+              ? new Date(opp.scheduledStart).toLocaleTimeString('en-US', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })
               : 'Not scheduled'}
           </p>
         </div>
       </div>
 
-      {/* Customer + Tech + Address row */}
+      {/* Customer + Tech + Address */}
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="card-premium p-7">
           <div className="flex items-center gap-2 mb-5">
@@ -297,14 +318,17 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
           </div>
           <div className="flex items-center gap-3">
             <div className="h-11 w-11 rounded-xl bg-[hsl(var(--primary))] flex items-center justify-center text-white font-bold">
-              {job.customer?.billingName?.charAt(0) ?? '?'}
+              {opp.customerName?.charAt(0) ?? '?'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-[15px] truncate">{job.customer?.billingName}</p>
-              {job.customer?.phone && (
-                <a href={`tel:${job.customer.phone}`} className="text-[12px] text-muted-foreground hover:text-[hsl(var(--primary))] flex items-center gap-1">
+              <p className="font-semibold text-[15px] truncate">{opp.customerName}</p>
+              {opp.customerPhone && (
+                <a
+                  href={`tel:${opp.customerPhone}`}
+                  className="text-[12px] text-muted-foreground hover:text-[hsl(var(--primary))] flex items-center gap-1"
+                >
                   <Phone className="h-3 w-3" />
-                  {formatPhone(job.customer.phone)}
+                  {formatPhone(opp.customerPhone)}
                 </a>
               )}
             </div>
@@ -316,17 +340,17 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
             <Wrench className="h-[18px] w-[18px] text-muted-foreground/60" />
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Technician</h3>
           </div>
-          {job.technician ? (
+          {opp.technician ? (
             <div className="flex items-center gap-3">
               <div className="h-11 w-11 rounded-xl bg-amber-500 flex items-center justify-center text-white font-bold">
-                {job.technician.user?.fullName?.charAt(0) ?? 'T'}
+                {opp.technician.user?.fullName?.charAt(0) ?? 'T'}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-[15px] truncate">{job.technician.user?.fullName}</p>
-                {job.technician.rating && (
+                <p className="font-semibold text-[15px] truncate">{opp.technician.user?.fullName}</p>
+                {opp.technician.rating && (
                   <p className="text-[12px] text-muted-foreground flex items-center gap-1">
                     <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                    {Number(job.technician.rating).toFixed(1)}
+                    {Number(opp.technician.rating).toFixed(1)}
                   </p>
                 )}
               </div>
@@ -344,22 +368,22 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Service Address</h3>
           </div>
           <p className="text-[14px] leading-snug">{address}</p>
-          {job.property?.accessNotes && (
+          {opp.property?.accessNotes && (
             <p className="mt-2 text-[11px] text-amber-700 bg-amber-50 px-2 py-1 rounded">
-              Access: {job.property.accessNotes}
+              Access: {opp.property.accessNotes}
             </p>
           )}
         </div>
       </div>
 
-      {/* Line Items */}
-      {job.items && job.items.length > 0 && (
+      {/* Line items */}
+      {opp.items && opp.items.length > 0 && (
         <div className="card-premium overflow-hidden">
           <div className="flex items-center justify-between border-b border-border px-7 py-5">
             <div className="flex items-center gap-2">
               <Receipt className="h-[18px] w-[18px] text-muted-foreground/60" />
               <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                Line Items ({job.items.length})
+                Line Items ({opp.items.length})
               </h3>
             </div>
             <p className="text-[14px] font-bold text-[hsl(var(--primary))]">
@@ -377,7 +401,7 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {job.items.map((item: any) => (
+                {opp.items.map((item: any) => (
                   <tr key={item.id} className={item.itemType === 'discount' ? 'text-green-700' : ''}>
                     <td className="px-6 py-3">
                       <p className="font-medium">{item.name}</p>
@@ -400,13 +424,13 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
 
       {/* Notes & rating */}
       <div className="grid gap-5 md:grid-cols-2">
-        {job.internalNotes && (
+        {opp.internalNotes && (
           <div className="card-premium p-7">
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-3">Internal Notes</h3>
-            <p className="text-[14px] text-foreground/80 whitespace-pre-wrap leading-relaxed">{job.internalNotes}</p>
+            <p className="text-[14px] text-foreground/80 whitespace-pre-wrap leading-relaxed">{opp.internalNotes}</p>
           </div>
         )}
-        {job.customerRating && (
+        {opp.customerRating && (
           <div className="card-premium p-7">
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-3">Customer Rating</h3>
             <div className="flex items-center gap-1 mb-2">
@@ -414,16 +438,16 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
                 <Star
                   key={s}
                   className={`h-5 w-5 ${
-                    job.customerRating != null && s <= job.customerRating
+                    opp.customerRating != null && s <= opp.customerRating
                       ? 'fill-amber-400 text-amber-400'
                       : 'text-muted fill-muted'
                   }`}
                 />
               ))}
-              <span className="ml-2 text-[14px] font-semibold">{job.customerRating}/5</span>
+              <span className="ml-2 text-[14px] font-semibold">{opp.customerRating}/5</span>
             </div>
-            {job.customerReview && (
-              <p className="text-[13px] text-muted-foreground">{job.customerReview}</p>
+            {opp.customerReview && (
+              <p className="text-[13px] text-muted-foreground">{opp.customerReview}</p>
             )}
           </div>
         )}
@@ -432,7 +456,7 @@ function JobDetail({ jobId, onBack }: { jobId: string; onBack: () => void }) {
   );
 }
 
-// ── Create Job Form ───────────────────────────────────────────────────────────
+// ── Create Job Form (still creates via job.create — write-side cutover in Step 6) ──
 
 function CreateJobForm({
   onClose,
@@ -460,13 +484,15 @@ function CreateJobForm({
 
   const createMutation = api.job.create.useMutation({
     onSuccess: (data) => {
-      utils.job.list.invalidate();
+      utils.opportunity.list.invalidate();
       onSaved(data.id);
     },
   });
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm((p) => ({ ...p, [k]: e.target.value }));
+  const set =
+    (k: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setForm((p) => ({ ...p, [k]: e.target.value }));
 
   function handleCustomerChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const id = e.target.value;
@@ -517,7 +543,9 @@ function CreateJobForm({
             >
               <option value="">— Select customer —</option>
               {customers.map((c: any) => (
-                <option key={c.id} value={c.id}>{c.billingName}</option>
+                <option key={c.id} value={c.id}>
+                  {c.billingName}
+                </option>
               ))}
             </select>
           </div>
@@ -543,8 +571,11 @@ function CreateJobForm({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Job Type *</Label>
-              <select value={form.jobType} onChange={set('jobType')}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <select
+                value={form.jobType}
+                onChange={set('jobType')}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 <option value="repair">Repair</option>
                 <option value="install">Install</option>
                 <option value="maintenance">Maintenance</option>
@@ -553,10 +584,15 @@ function CreateJobForm({
             </div>
             <div className="space-y-1.5">
               <Label>Category *</Label>
-              <select value={form.category} onChange={set('category')}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                {CATEGORIES.map(c => (
-                  <option key={c} value={c} className="capitalize">{c}</option>
+              <select
+                value={form.category}
+                onChange={set('category')}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c} className="capitalize">
+                    {c}
+                  </option>
                 ))}
               </select>
             </div>
@@ -577,8 +613,11 @@ function CreateJobForm({
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label>Priority</Label>
-              <select value={form.priority} onChange={set('priority')}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <select
+                value={form.priority}
+                onChange={set('priority')}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 <option value="low">Low</option>
                 <option value="normal">Normal</option>
                 <option value="high">High</option>
@@ -625,8 +664,14 @@ function CreateJobForm({
           )}
 
           <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={createMutation.isPending || !form.customerId || !form.propertyId} className="btn-orange !text-[13px]">
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={createMutation.isPending || !form.customerId || !form.propertyId}
+              className="btn-orange !text-[13px]"
+            >
               {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create Job
             </Button>
@@ -641,7 +686,16 @@ function CreateJobForm({
 
 export default function JobsPage() {
   return (
-    <Suspense fallback={<><Topbar title="Jobs" /><div className="p-12 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div></>}>
+    <Suspense
+      fallback={
+        <>
+          <Topbar title="Jobs" />
+          <div className="p-12 flex justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        </>
+      }
+    >
       <JobsPageInner />
     </Suspense>
   );
@@ -652,56 +706,87 @@ function JobsPageInner() {
   const searchParams = useSearchParams();
   const urlId = searchParams.get('id');
 
-  const [activeStatus, setActiveStatus] = useState<JobStatus | 'all'>('all');
+  const [activeStage, setActiveStage] = useState<JobStageFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [unassignedOnly, setUnassignedOnly] = useState<boolean>(false);
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(urlId);
+  const [selectedOppId, setSelectedOppId] = useState<string | null>(urlId);
   const [showCreate, setShowCreate] = useState(false);
 
-  useEffect(() => { setSelectedJobId(urlId); }, [urlId]);
+  useEffect(() => {
+    setSelectedOppId(urlId);
+  }, [urlId]);
 
-  function selectJob(id: string | null) {
+  function selectOpp(id: string | null) {
     if (id) router.push(`/jobs?id=${id}`);
     else router.push('/jobs');
-    setSelectedJobId(id);
+    setSelectedOppId(id);
   }
 
-  // Load filtered list
-  const { data: listData, isLoading } = api.job.list.useQuery({
-    status: activeStatus === 'all' ? undefined : activeStatus,
-    category: categoryFilter || undefined,
+  // All job-stage opps for counts + unassigned banner
+  const { data: allData } = api.opportunity.list.useQuery({
+    stages: [...JOB_STAGES],
+    limit: 100,
+  });
+  const allOpps = allData?.items ?? [];
+
+  // Filtered list
+  const { data: listData, isLoading } = api.opportunity.list.useQuery({
+    stages: activeStage === 'all' ? [...JOB_STAGES] : [activeStage],
     unassignedOnly: unassignedOnly || undefined,
     limit: 100,
   });
+  const opps = listData?.items ?? [];
 
-  // Status count
-  const { data: allData } = api.job.list.useQuery({ limit: 100 });
-  const allJobs = allData?.items ?? [];
-  const countByStatus = allJobs.reduce((acc: Record<string, number>, j: any) => {
-    acc[j.status] = (acc[j.status] ?? 0) + 1;
+  // Count per stage for tabs
+  const countByStage = allOpps.reduce((acc: Record<string, number>, o: any) => {
+    acc[o.stage] = (acc[o.stage] ?? 0) + 1;
     return acc;
   }, {});
 
-  // Smart stats from new procedures — Unassigned-first (action), Today/Tomorrow (situational), forecast (owner-view)
-  const { data: todayJobs = [] } = api.job.todaySchedule.useQuery({ dayOffset: 0 });
-  const { data: tomorrowJobs = [] } = api.job.todaySchedule.useQuery({ dayOffset: 1 });
-  const { data: unassignedJobs = [] } = api.job.unassigned.useQuery({});
-  const { data: forecast } = api.job.revenueForecast.useQuery({ days: 7 });
+  // Unassigned jobs (job_created with no technician)
+  const unassignedOpps = allOpps.filter(
+    (o: any) => !o.technicianId && ['job_created', 'scheduled'].includes(o.stage),
+  );
+
+  // Today / tomorrow schedule columns
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+
+  const todayOpps = allOpps.filter((o: any) => {
+    if (!o.scheduledStart) return false;
+    const d = new Date(o.scheduledStart);
+    return d.toDateString() === today.toDateString();
+  });
+  const tomorrowOpps = allOpps.filter((o: any) => {
+    if (!o.scheduledStart) return false;
+    const d = new Date(o.scheduledStart);
+    return d.toDateString() === tomorrow.toDateString();
+  });
 
   const inProgressCount =
-    (countByStatus['in_progress'] ?? 0) + (countByStatus['on_site'] ?? 0) + (countByStatus['en_route'] ?? 0);
+    (countByStage['in_progress'] ?? 0) +
+    (countByStage['on_the_way'] ?? 0);
 
-  const jobs = listData?.items ?? [];
+  // Apply category filter client-side (opportunity doesn't have a category field in the same way)
+  const filteredOpps = categoryFilter
+    ? opps.filter((o: any) =>
+        (o.serviceCategory ?? '').toLowerCase() === categoryFilter.toLowerCase(),
+      )
+    : opps;
 
-  if (selectedJobId) {
+  if (selectedOppId) {
     return (
       <>
         <Topbar title="Jobs" />
-        <JobDetail jobId={selectedJobId} onBack={() => selectJob(null)} />
+        <OppDetail oppId={selectedOppId} onBack={() => selectOpp(null)} />
         {showCreate && (
           <CreateJobForm
             onClose={() => setShowCreate(false)}
-            onSaved={(id) => { setShowCreate(false); selectJob(id); }}
+            onSaved={(id) => {
+              setShowCreate(false);
+              selectOpp(id);
+            }}
           />
         )}
       </>
@@ -724,21 +809,25 @@ function JobsPageInner() {
               Every active job, scheduled, dispatched, and completed across the team.
             </p>
           </div>
-          <Button onClick={() => setShowCreate(true)} className="btn-orange inline-flex items-center justify-center gap-2 text-[14px] self-start md:self-auto">
+          <Button
+            onClick={() => setShowCreate(true)}
+            className="btn-orange inline-flex items-center justify-center gap-2 text-[14px] self-start md:self-auto"
+          >
             <Plus className="h-4 w-4" />
             New Job
           </Button>
         </div>
 
-        {/* Action zone — Unassigned-first (top priority for dispatcher) */}
-        {unassignedJobs.length > 0 && (
+        {/* Unassigned banner */}
+        {unassignedOpps.length > 0 && (
           <div className="card-premium border-amber-300 bg-amber-50/30 overflow-hidden">
             <div className="flex items-center justify-between border-b border-amber-200/60 bg-amber-50/60 px-7 py-5">
               <div className="flex items-center gap-3">
                 <AlertTriangle className="h-5 w-5 text-amber-600" />
                 <div>
                   <h3 className="text-[15px] font-bold text-amber-900">
-                    {unassignedJobs.length} job{unassignedJobs.length !== 1 ? 's' : ''} need{unassignedJobs.length === 1 ? 's' : ''} a technician
+                    {unassignedOpps.length} job{unassignedOpps.length !== 1 ? 's' : ''} need
+                    {unassignedOpps.length === 1 ? 's' : ''} a technician
                   </h3>
                   <p className="text-[12px] text-amber-700">Assign now to keep the schedule moving</p>
                 </div>
@@ -751,39 +840,39 @@ function JobsPageInner() {
               </button>
             </div>
             <div className="grid gap-3 p-5 md:grid-cols-2 lg:grid-cols-3">
-              {unassignedJobs.slice(0, 6).map((job: any) => (
+              {unassignedOpps.slice(0, 6).map((opp: any) => (
                 <button
-                  key={job.id}
-                  onClick={() => selectJob(job.id)}
+                  key={opp.id}
+                  onClick={() => selectOpp(opp.id)}
                   className="text-left rounded-lg border border-amber-200 bg-white p-4 hover:border-amber-400 hover:shadow-sm transition-all"
                 >
                   <div className="flex items-start justify-between mb-2">
-                    <span className="font-mono text-[11px] font-bold text-[hsl(var(--primary))]">
-                      {job.jobNumber}
-                    </span>
-                    <PriorityBadge priority={job.priority} />
+                    <OppStageBadge stage={opp.stage} />
+                    <PriorityBadge priority={opp.priority} />
                   </div>
-                  <p className="font-semibold text-[14px] truncate">{job.customer?.billingName}</p>
-                  <p className="text-[12px] text-muted-foreground line-clamp-2 mt-1">{job.description}</p>
+                  <p className="font-semibold text-[14px] truncate">{opp.customerName}</p>
+                  <p className="text-[12px] text-muted-foreground line-clamp-2 mt-1">{opp.description}</p>
                   <div className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground">
                     <MapPin className="h-3 w-3" />
-                    <span>{job.property?.city}, {job.property?.state}</span>
-                    <span className="ml-auto capitalize">{job.category}</span>
+                    <span>
+                      {opp.city ?? '—'}, {opp.state ?? ''}
+                    </span>
+                    <span className="ml-auto capitalize">{opp.serviceCategory}</span>
                   </div>
-                  {/* Suggested-tech placeholder — fed by suggestTechForJob() in T18 */}
                   <div className="mt-3 pt-3 border-t border-dashed border-amber-200 flex items-center gap-2">
                     <Zap className="h-3 w-3 text-amber-500" />
                     <span className="text-[10px] uppercase tracking-wide font-semibold text-amber-700">
                       Suggested tech
                     </span>
-                    <span className="text-[11px] text-muted-foreground italic ml-auto">
-                      Midas — coming
-                    </span>
+                    <span className="text-[11px] text-muted-foreground italic ml-auto">Midas — coming</span>
                   </div>
                   <Button
                     size="sm"
                     className="btn-orange w-full mt-3 !text-[12px] !py-1.5"
-                    onClick={(e) => { e.stopPropagation(); selectJob(job.id); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      selectOpp(opp.id);
+                    }}
                   >
                     Claim & assign →
                   </Button>
@@ -793,12 +882,22 @@ function JobsPageInner() {
           </div>
         )}
 
-        {/* Schedule overview — Today + Tomorrow side by side */}
+        {/* Schedule overview */}
         <div className="grid gap-5 lg:grid-cols-3">
-          <ScheduleColumn label="Today" icon={Calendar} jobs={todayJobs} onSelect={selectJob} highlight />
-          <ScheduleColumn label="Tomorrow" icon={Calendar} jobs={tomorrowJobs} onSelect={selectJob} />
+          <ScheduleColumn
+            label="Today"
+            icon={Calendar}
+            opps={todayOpps}
+            onSelect={selectOpp}
+            highlight
+          />
+          <ScheduleColumn
+            label="Tomorrow"
+            icon={Calendar}
+            opps={tomorrowOpps}
+            onSelect={selectOpp}
+          />
 
-          {/* In Progress + Forecast (owner-view) stacked */}
           <div className="space-y-5">
             <div className="card-premium p-5">
               <div className="flex items-center justify-between mb-3">
@@ -807,35 +906,35 @@ function JobsPageInner() {
                 </p>
               </div>
               <p className="stat-display !text-[36px]">{inProgressCount}</p>
-              <p className="mt-1 text-[12px] text-muted-foreground">en route · on site · in progress</p>
+              <p className="mt-1 text-[12px] text-muted-foreground">on the way · in progress</p>
             </div>
             <div className="card-premium p-5">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground flex items-center gap-2">
-                  <DollarSign className="h-[14px] w-[14px]" /> Week forecast
+                  <DollarSign className="h-[14px] w-[14px]" /> Active jobs
                 </p>
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Owner</span>
               </div>
               <p className="stat-display !text-[36px] text-[hsl(var(--primary))]">
-                {forecast ? formatCurrency(forecast.total) : '—'}
+                {allOpps.length}
               </p>
-              <p className="mt-1 text-[12px] text-muted-foreground">
-                {forecast?.jobCount ?? 0} jobs · next 7d
-              </p>
+              <p className="mt-1 text-[12px] text-muted-foreground">across all job stages</p>
             </div>
           </div>
         </div>
 
-        {/* Filters bar */}
+        {/* Filters */}
         <div className="flex flex-col gap-3 md:flex-row md:items-center">
           <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-none flex-1">
-            {STATUS_TABS.map((tab) => {
-              const count = tab.value === 'all' ? allJobs.length : countByStatus[tab.value] ?? 0;
-              const isActive = tab.value === activeStatus;
+            {STAGE_TABS.map((tab) => {
+              const count = tab.value === 'all' ? allOpps.length : countByStage[tab.value] ?? 0;
+              const isActive = tab.value === activeStage;
               return (
                 <button
                   key={tab.value}
-                  onClick={() => { setActiveStatus(tab.value); setUnassignedOnly(false); }}
+                  onClick={() => {
+                    setActiveStage(tab.value);
+                    setUnassignedOnly(false);
+                  }}
                   className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[12px] font-medium whitespace-nowrap transition-colors border ${
                     isActive
                       ? 'bg-foreground text-background border-foreground'
@@ -844,7 +943,11 @@ function JobsPageInner() {
                 >
                   {tab.label}
                   {count > 0 && (
-                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${isActive ? 'bg-white/20 text-white' : 'bg-muted'}`}>
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                        isActive ? 'bg-white/20 text-white' : 'bg-muted'
+                      }`}
+                    >
                       {count}
                     </span>
                   )}
@@ -860,7 +963,11 @@ function JobsPageInner() {
               className="h-9 rounded-full border border-border bg-background px-4 text-[12px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring capitalize"
             >
               <option value="">All categories</option>
-              {CATEGORIES.map(c => <option key={c} value={c} className="capitalize">{c}</option>)}
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c} className="capitalize">
+                  {c}
+                </option>
+              ))}
             </select>
 
             {unassignedOnly && (
@@ -875,21 +982,25 @@ function JobsPageInner() {
           </div>
         </div>
 
-        {/* Jobs table */}
+        {/* Opps table */}
         <div className="card-premium overflow-hidden">
           {isLoading ? (
             <div className="flex items-center justify-center p-16">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
-          ) : jobs.length === 0 ? (
+          ) : filteredOpps.length === 0 ? (
             <div className="p-16 text-center text-muted-foreground">
               <Wrench className="mx-auto h-10 w-10 mb-3 opacity-30" />
               <p className="font-medium">
-                {activeStatus === 'all' && !categoryFilter && !unassignedOnly
+                {activeStage === 'all' && !categoryFilter && !unassignedOnly
                   ? 'No jobs yet'
                   : 'No jobs match these filters'}
               </p>
-              <Button onClick={() => setShowCreate(true)} size="sm" className="mt-4 btn-orange !text-[13px]">
+              <Button
+                onClick={() => setShowCreate(true)}
+                size="sm"
+                className="mt-4 btn-orange !text-[13px]"
+              >
                 <Plus className="h-4 w-4 mr-1.5" />
                 Create Job
               </Button>
@@ -899,58 +1010,55 @@ function JobsPageInner() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/40">
-                    <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Job #</th>
                     <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Customer</th>
                     <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Category</th>
                     <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide hidden md:table-cell">Tech</th>
                     <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide hidden lg:table-cell">Scheduled</th>
                     <th className="px-6 py-3 text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wide hidden lg:table-cell">Revenue</th>
-                    <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Status</th>
+                    <th className="px-6 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Stage</th>
                     <th className="px-4 py-3 w-8" />
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {jobs.map((job: any) => (
+                  {filteredOpps.map((opp: any) => (
                     <tr
-                      key={job.id}
+                      key={opp.id}
                       className="hover:bg-muted/30 transition-colors cursor-pointer"
-                      onClick={() => selectJob(job.id)}
+                      onClick={() => selectOpp(opp.id)}
                     >
                       <td className="px-6 py-4">
-                        <span className="font-mono text-[12px] font-bold text-[hsl(var(--primary))]">
-                          {job.jobNumber}
-                        </span>
-                        {job.priority === 'emergency' && (
-                          <AlertTriangle className="inline ml-1.5 h-3.5 w-3.5 text-red-500" />
-                        )}
-                        {job.priority === 'high' && (
-                          <AlertTriangle className="inline ml-1.5 h-3.5 w-3.5 text-orange-500" />
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="font-medium">{job.customer?.billingName}</p>
-                        {job.property && (
+                        <p className="font-medium">{opp.customerName}</p>
+                        {(opp.property?.city || opp.city) && (
                           <p className="text-[11px] text-muted-foreground">
-                            {job.property.city}, {job.property.state}
+                            {opp.property?.city ?? opp.city}, {opp.property?.state ?? opp.state}
                           </p>
+                        )}
+                        {opp.priority === 'emergency' && (
+                          <AlertTriangle className="inline ml-1.5 h-3.5 w-3.5 text-red-500" />
                         )}
                       </td>
                       <td className="px-6 py-4 hidden sm:table-cell">
-                        <span className="capitalize text-muted-foreground">{job.category}</span>
+                        <span className="capitalize text-muted-foreground">{opp.serviceCategory}</span>
                       </td>
                       <td className="px-6 py-4 hidden md:table-cell">
-                        {job.technician?.user?.fullName ?? (
+                        {opp.technician?.user?.fullName ?? (
                           <span className="text-muted-foreground text-[11px]">Unassigned</span>
                         )}
                       </td>
                       <td className="px-6 py-4 hidden lg:table-cell">
-                        {job.scheduledStart ? (
+                        {opp.scheduledStart ? (
                           <div>
                             <p className="text-[12px] font-medium">
-                              {new Date(job.scheduledStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              {new Date(opp.scheduledStart).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                              })}
                             </p>
                             <p className="text-[11px] text-muted-foreground">
-                              {new Date(job.scheduledStart).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                              {new Date(opp.scheduledStart).toLocaleTimeString('en-US', {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              })}
                             </p>
                           </div>
                         ) : (
@@ -958,14 +1066,14 @@ function JobsPageInner() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-right hidden lg:table-cell">
-                        {job.estimatedRevenue ? (
-                          <span className="font-medium">{formatCurrency(Number(job.estimatedRevenue))}</span>
+                        {opp.estimateAmount ? (
+                          <span className="font-medium">{formatCurrency(Number(opp.estimateAmount))}</span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <JobStatusBadge status={job.status} />
+                        <OppStageBadge stage={opp.stage} />
                       </td>
                       <td className="px-4 py-4 text-muted-foreground">
                         <ChevronRight className="h-4 w-4" />
@@ -978,10 +1086,10 @@ function JobsPageInner() {
           )}
         </div>
 
-        {!isLoading && jobs.length > 0 && (
+        {!isLoading && filteredOpps.length > 0 && (
           <p className="text-[12px] text-muted-foreground">
-            {jobs.length} job{jobs.length !== 1 ? 's' : ''}
-            {activeStatus !== 'all' && ` · ${activeStatus.replace('_', ' ')}`}
+            {filteredOpps.length} job{filteredOpps.length !== 1 ? 's' : ''}
+            {activeStage !== 'all' && ` · ${activeStage.replace(/_/g, ' ')}`}
             {categoryFilter && ` · ${categoryFilter}`}
             {unassignedOnly && ` · unassigned`}
           </p>
@@ -991,7 +1099,10 @@ function JobsPageInner() {
       {showCreate && (
         <CreateJobForm
           onClose={() => setShowCreate(false)}
-          onSaved={(id) => { setShowCreate(false); selectJob(id); }}
+          onSaved={(id) => {
+            setShowCreate(false);
+            selectOpp(id);
+          }}
         />
       )}
     </>

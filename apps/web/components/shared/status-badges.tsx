@@ -1,5 +1,5 @@
 /**
- * Shared status badge components used across Customers, Leads, Jobs pages.
+ * Shared status badge components used across Customers, Leads, Jobs, Opportunities pages.
  */
 
 // ── Job Status ────────────────────────────────────────────────────────────────
@@ -74,6 +74,49 @@ export function CustomerTypeBadge({ type }: { type: string }) {
   return (
     <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${cls}`}>
       {type}
+    </span>
+  );
+}
+
+// ── Opportunity Stage Badge ───────────────────────────────────────────────────
+
+const OPP_STAGE_STYLES: Record<string, string> = {
+  new_lead:          'bg-blue-50 text-blue-700 border-blue-200',
+  ai_responding:     'bg-sky-50 text-sky-700 border-sky-200',
+  qualified:         'bg-purple-50 text-purple-700 border-purple-200',
+  estimate_sent:     'bg-cyan-50 text-cyan-700 border-cyan-200',
+  estimate_approved: 'bg-teal-50 text-teal-700 border-teal-200',
+  job_created:       'bg-indigo-50 text-indigo-700 border-indigo-200',
+  scheduled:         'bg-violet-50 text-violet-700 border-violet-200',
+  on_the_way:        'bg-orange-50 text-orange-700 border-orange-200',
+  in_progress:       'bg-amber-50 text-amber-700 border-amber-200',
+  done:              'bg-green-50 text-green-700 border-green-200',
+  invoiced:          'bg-lime-50 text-lime-700 border-lime-200',
+  paid:              'bg-emerald-50 text-emerald-700 border-emerald-200',
+  lost:              'bg-gray-100 text-gray-500 border-gray-200',
+};
+
+const OPP_STAGE_LABELS: Record<string, string> = {
+  new_lead:          'New lead',
+  ai_responding:     'AI responding',
+  qualified:         'Qualified',
+  estimate_sent:     'Estimate sent',
+  estimate_approved: 'Est. approved',
+  job_created:       'Job created',
+  scheduled:         'Scheduled',
+  on_the_way:        'On the way',
+  in_progress:       'In progress',
+  done:              'Done',
+  invoiced:          'Invoiced',
+  paid:              'Paid',
+  lost:              'Lost',
+};
+
+export function OppStageBadge({ stage }: { stage: string }) {
+  const cls = OPP_STAGE_STYLES[stage] ?? 'bg-gray-100 text-gray-600 border-gray-200';
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${cls}`}>
+      {OPP_STAGE_LABELS[stage] ?? stage.replace(/_/g, ' ')}
     </span>
   );
 }

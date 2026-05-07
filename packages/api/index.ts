@@ -5,8 +5,6 @@ import { jobRouter } from './routers/job';
 import { leadRouter } from './routers/lead';
 import { technicianRouter } from './routers/technician';
 import { dashboardRouter } from './routers/dashboard';
-// T-CORE-OPPORTUNITY Step 4: wire-up approved 2026-04-30 (M1 sprint).
-// Shadow-mode: old job/lead routers stay operational. UI cuts over per-screen.
 import { opportunityRouter } from './routers/opportunity';
 
 export const appRouter = router({

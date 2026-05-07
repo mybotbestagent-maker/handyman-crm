@@ -17,7 +17,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-import { JobStatusBadge } from '@/components/shared/status-badges';
+import { OppStageBadge } from '@/components/shared/status-badges';
 import Link from 'next/link';
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────
@@ -105,21 +105,15 @@ function StatusBar({
 export default function DashboardPage() {
   const { data: stats, isLoading } = api.dashboard.stats.useQuery({});
 
-  const jobsByStatus = stats?.jobsByStatus ?? {};
-  const totalStatusJobs = Object.values(jobsByStatus).reduce(
+  // Opportunity stage breakdown (new model)
+  const oppByStage = stats?.oppByStage ?? {};
+  const totalOppStages = Object.values(oppByStage).reduce(
     (sum: number, v: any) => sum + Number(v),
     0,
   );
 
-  const activeJobs =
-    (jobsByStatus['new'] ?? 0) +
-    (jobsByStatus['scheduled'] ?? 0) +
-    (jobsByStatus['dispatched'] ?? 0) +
-    (jobsByStatus['en_route'] ?? 0) +
-    (jobsByStatus['on_site'] ?? 0) +
-    (jobsByStatus['in_progress'] ?? 0);
-
-  const completedToday = jobsByStatus['completed'] ?? 0;
+  const activeJobs = stats?.activeJobOpps ?? 0;
+  const completedToday = oppByStage['done'] ?? 0;
 
   return (
     <>
@@ -192,58 +186,58 @@ export default function DashboardPage() {
               />
             </div>
 
-            {/* Status grid + chart row */}
+            {/* Stage grid + chart row — using Opportunity model */}
             <div className="grid gap-4 lg:grid-cols-3">
-              {/* Status grid */}
+              {/* Stage grid */}
               <div className="lg:col-span-2 grid grid-cols-3 sm:grid-cols-3 gap-3">
                 {[
-                  { label: 'New', key: 'new', Icon: PhoneIncoming, color: 'text-blue-600', bg: 'bg-blue-50' },
-                  { label: 'Scheduled', key: 'scheduled', Icon: Clock, color: 'text-purple-600', bg: 'bg-purple-50' },
-                  { label: 'Dispatched', key: 'dispatched', Icon: Users, color: 'text-yellow-600', bg: 'bg-yellow-50' },
-                  { label: 'On Site', key: 'on_site', Icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50' },
-                  { label: 'In Progress', key: 'in_progress', Icon: Briefcase, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-                  { label: 'Completed', key: 'completed', Icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
+                  { label: 'New Leads', key: 'new_lead', Icon: PhoneIncoming, href: '/leads' },
+                  { label: 'Qualified', key: 'qualified', Icon: Zap, href: '/leads' },
+                  { label: 'Scheduled', key: 'scheduled', Icon: Clock, href: '/jobs' },
+                  { label: 'On the Way', key: 'on_the_way', Icon: Users, href: '/jobs' },
+                  { label: 'In Progress', key: 'in_progress', Icon: Briefcase, href: '/jobs' },
+                  { label: 'Done', key: 'done', Icon: CheckCircle, href: '/jobs' },
                 ].map((s) => (
                   <Link
                     key={s.key}
-                    href={`/jobs`}
+                    href={s.href}
                     className="card-premium p-5 text-center transition-all hover:-translate-y-0.5"
                   >
-                    <p className="stat-display !text-[32px]">{jobsByStatus[s.key] ?? 0}</p>
+                    <p className="stat-display !text-[32px]">{oppByStage[s.key] ?? 0}</p>
                     <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{s.label}</p>
                   </Link>
                 ))}
               </div>
 
-              {/* Status distribution chart */}
+              {/* Funnel distribution chart */}
               <div className="card-premium p-7">
                 <div className="flex items-center gap-2 mb-6">
-                  <BarChart3 className="h-[18px] w-[18px] text-muted-foreground/60"  />
-                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Jobs by Status</h3>
+                  <BarChart3 className="h-[18px] w-[18px] text-muted-foreground/60" />
+                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Funnel by Stage</h3>
                 </div>
                 <div className="space-y-3">
                   {[
-                    { label: 'In Progress', key: 'in_progress', color: 'bg-indigo-500' },
-                    { label: 'Scheduled', key: 'scheduled', color: 'bg-purple-500' },
-                    { label: 'Completed', key: 'completed', color: 'bg-green-500' },
-                    { label: 'New', key: 'new', color: 'bg-blue-500' },
-                    { label: 'Dispatched', key: 'dispatched', color: 'bg-yellow-500' },
+                    { label: 'New lead', key: 'new_lead', color: 'bg-blue-500' },
+                    { label: 'Qualified', key: 'qualified', color: 'bg-purple-500' },
+                    { label: 'Scheduled', key: 'scheduled', color: 'bg-violet-500' },
+                    { label: 'In Progress', key: 'in_progress', color: 'bg-amber-500' },
+                    { label: 'Done', key: 'done', color: 'bg-green-500' },
                     { label: 'Paid', key: 'paid', color: 'bg-emerald-500' },
-                    { label: 'Canceled', key: 'canceled', color: 'bg-red-400' },
+                    { label: 'Lost', key: 'lost', color: 'bg-red-400' },
                   ]
-                    .filter((s) => (jobsByStatus[s.key] ?? 0) > 0)
+                    .filter((s) => (oppByStage[s.key] ?? 0) > 0)
                     .map((s) => (
                       <StatusBar
                         key={s.key}
                         label={s.label}
-                        count={jobsByStatus[s.key] ?? 0}
-                        total={totalStatusJobs}
+                        count={oppByStage[s.key] ?? 0}
+                        total={totalOppStages}
                         color={s.color}
                       />
                     ))}
                 </div>
                 <p className="mt-4 text-xs text-muted-foreground border-t pt-3">
-                  {totalStatusJobs} total jobs
+                  {totalOppStages} total opportunities
                 </p>
               </div>
             </div>
@@ -306,7 +300,7 @@ export default function DashboardPage() {
                               : '—'}
                           </td>
                           <td className="px-6 py-4">
-                            <JobStatusBadge status={job.status} />
+                            <OppStageBadge stage={job.status} />
                           </td>
                         </tr>
                       ))}
